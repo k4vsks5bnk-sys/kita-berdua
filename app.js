@@ -413,6 +413,15 @@ async function loadImage(file) {
   }
 }
 
+// Simpan pilihan mirror PAP per perangkat (kamera tiap HP beda perilaku)
+const SNAP_MIRROR_KEY = "kb:snapMirror";
+function snapMirrorPref() {
+  try { return localStorage.getItem(SNAP_MIRROR_KEY) === "1"; } catch { return false; }
+}
+function saveSnapMirrorPref(v) {
+  try { localStorage.setItem(SNAP_MIRROR_KEY, v ? "1" : "0"); } catch {}
+}
+
 async function compressImage(file, maxPx, quality = 0.85, { mirror = false } = {}) {
   const img = await loadImage(file).catch(() => {
     throw new Error("Foto tidak bisa dibaca. Coba foto lain.");
@@ -818,32 +827,107 @@ function snapCard() {
 
 const snapPicker = $("#snap-picker");
 
-function takeSnap() {
+/* Kamera di dalam aplikasi: pratinjau & hasil sama-sama mirror untuk kamera depan,
+   tidak tergantung setelan kamera bawaan HP. Input file tetap jadi cadangan. */
+let snapCam = null; // { stream, facing }
+let snapFacing = "user";
+
+function stopSnapCamera() {
+  snapCam?.stream.getTracks().forEach((t) => t.stop());
+  snapCam = null;
+}
+
+async function startSnapCamera(facing) {
+  stopSnapCamera();
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1920 } },
+    audio: false,
+  });
+  const video = document.querySelector(".snap-cam__video");
+  if (!video) {
+    // Sheet sudah ditutup selagi menunggu izin kamera
+    stream.getTracks().forEach((t) => t.stop());
+    return;
+  }
+  snapCam = { stream, facing };
+  video.srcObject = stream;
+  video.classList.toggle("is-mirrored", facing === "user");
+  await video.play().catch(() => {});
+}
+
+async function takeSnap() {
+  if (!navigator.mediaDevices?.getUserMedia) return takeSnapFromFile();
+  openSheet(
+    "Kirim PAP",
+    `<div class="snap-cam">
+      <video class="snap-cam__video" playsinline muted autoplay></video>
+    </div>
+    <div class="sheet__actions">
+      <button type="button" class="btn btn--ghost" data-action="switch-snap-cam">Putar kamera</button>
+      <button type="button" class="btn" data-action="shoot-snap">Jepret</button>
+    </div>
+    <p class="help"><button type="button" class="link-btn" data-action="take-snap-file">Kamera tidak muncul? Pakai kamera HP</button></p>`,
+  );
+  try {
+    await startSnapCamera(snapFacing);
+  } catch {
+    toast("Kamera tidak bisa dibuka. Izinkan akses kamera, atau pakai kamera HP.", true);
+  }
+}
+
+async function switchSnapCamera() {
+  snapFacing = snapFacing === "user" ? "environment" : "user";
+  try {
+    await startSnapCamera(snapFacing);
+  } catch {
+    toast("Kamera ini tidak tersedia.", true);
+  }
+}
+
+async function shootSnap() {
+  const video = document.querySelector(".snap-cam__video");
+  if (!snapCam || !video?.videoWidth) return;
+  const scale = Math.min(1, SNAP_OUTPUT_PX / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  const raw = await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Gagal mengambil foto."))), "image/jpeg", 0.95),
+  );
+  // Kamera depan: hasil dibalik supaya sama persis dengan yang terlihat di layar
+  await showSnapPreview(raw, snapCam.facing === "user");
+}
+
+function takeSnapFromFile() {
   snapPicker.value = "";
   snapPicker.click();
+}
+
+async function showSnapPreview(source, mirror) {
+  const blob = await compressImage(source, SNAP_OUTPUT_PX, 0.82, { mirror });
+  if (state.pendingSnap) URL.revokeObjectURL(state.pendingSnap.url);
+  state.pendingSnap = { file: source, mirror, blob, url: URL.createObjectURL(blob) };
+  openSheet(
+    "Kirim PAP",
+    `<form data-form="snap">
+      <img class="snap-preview" src="${esc(state.pendingSnap.url)}" alt="Pratinjau PAP">
+      ${field("s-caption", "Caption (opsional)", `<input id="s-caption" name="caption" maxlength="${SNAP_CAPTION_MAX}" placeholder="Lagi di mana, ngapain?">`)}
+      <p class="help">${esc(partnerName())} baru bisa melihatnya setelah ikut kirim PAP hari ini. Besok PAP ini hilang.</p>
+      <div class="sheet__actions">
+        <button type="button" class="btn btn--ghost" data-action="take-snap">Foto ulang</button>
+        <button type="button" class="btn btn--ghost" data-action="flip-snap">Balik</button>
+        <button type="submit" class="btn">Kirim</button>
+      </div>
+    </form>`,
+  );
 }
 
 snapPicker?.addEventListener("change", async () => {
   const file = snapPicker.files[0];
   if (!file) return;
   try {
-    const mirror = true; // PAP default di-mirror
-    const blob = await compressImage(file, SNAP_OUTPUT_PX, 0.82, { mirror });
-    if (state.pendingSnap) URL.revokeObjectURL(state.pendingSnap.url);
-    state.pendingSnap = { file, mirror, blob, url: URL.createObjectURL(blob) };
-    openSheet(
-      "Kirim PAP",
-      `<form data-form="snap">
-        <img class="snap-preview" src="${esc(state.pendingSnap.url)}" alt="Pratinjau PAP">
-        ${field("s-caption", "Caption (opsional)", `<input id="s-caption" name="caption" maxlength="${SNAP_CAPTION_MAX}" placeholder="Lagi di mana, ngapain?">`)}
-        <p class="help">${esc(partnerName())} baru bisa melihatnya setelah ikut kirim PAP hari ini. Besok PAP ini hilang.</p>
-        <div class="sheet__actions">
-          <button type="button" class="btn btn--ghost" data-action="take-snap">Foto ulang</button>
-          <button type="button" class="btn btn--ghost" data-action="flip-snap">Balik</button>
-          <button type="submit" class="btn">Kirim</button>
-        </div>
-      </form>`,
-    );
+    await showSnapPreview(file, snapMirrorPref());
   } catch (err) {
     toast(err.message, true);
   }
@@ -854,6 +938,7 @@ async function flipSnap() {
   const p = state.pendingSnap;
   if (!p?.file) return;
   const mirror = !p.mirror;
+  saveSnapMirrorPref(mirror);
   const blob = await compressImage(p.file, SNAP_OUTPUT_PX, 0.82, { mirror });
   URL.revokeObjectURL(p.url);
   state.pendingSnap = { ...p, mirror, blob, url: URL.createObjectURL(blob) };
@@ -1629,6 +1714,7 @@ function openSheet(title, body) {
 }
 
 function closeSheet(restoreFocus = true) {
+  stopSnapCamera();
   if (!sheetEl) return;
   sheetEl.remove();
   sheetEl = null;
@@ -2466,6 +2552,15 @@ document.addEventListener("click", async (e) => {
         break;
       case "take-snap":
         takeSnap();
+        break;
+      case "take-snap-file":
+        takeSnapFromFile();
+        break;
+      case "switch-snap-cam":
+        await switchSnapCamera();
+        break;
+      case "shoot-snap":
+        await shootSnap();
         break;
       case "flip-snap":
         await flipSnap();
