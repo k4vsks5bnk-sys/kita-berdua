@@ -20,6 +20,7 @@ supabase/
   06-daily-questions.sql pertanyaan harian (jawaban terbuka setelah ikut menjawab)
   07-love-coupons.sql   kupon cinta (hanya penerima yang bisa menukar)
   08-photo-albums.sql   album: beberapa foto dalam satu kenangan
+  09-daily-snaps.sql    PAP harian (bucket privat, terbuka setelah ikut kirim)
 ```
 
 Nama dan warna pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`. Warna dasar ada di bagian `:root` di `style.css` (`--aiya`, `--denan`, `--kita`).
@@ -30,7 +31,7 @@ Konsep "dua warna yang bertemu": Aiya rose, Denan biru malam, dan titik temunya 
 
 ## Menjalankan SQL (sekali saja)
 
-Di Supabase → SQL Editor, jalankan berurutan: `01` sampai `08`. Semua skrip aman dijalankan ulang, jadi yang sudah pernah dijalankan boleh dilewati.
+Di Supabase → SQL Editor, jalankan berurutan: `01` sampai `09`. Semua skrip aman dijalankan ulang, jadi yang sudah pernah dijalankan boleh dilewati.
 
 - `01` sama dengan `supabase-memory-setup.sql` versi lama. Lewati jika sudah pernah dijalankan.
 - `02` membuat/merapikan tabel `profile_photos` dan bucket `profil`.
@@ -56,6 +57,7 @@ Setiap kali `style.css` atau `app.js` berubah, naikkan `VERSION` di `sw.js` agar
 - **Pertanyaan harian** (beranda): satu pertanyaan per hari (WIB), sama untuk berdua. Jawaban pasangan terbuka setelah kamu ikut menjawab, atau keesokan harinya. Daftar pertanyaan ada di `DAILY_QUESTIONS` di `app.js`.
 - **Kupon cinta** (tab Hadiah): buat kupon untuk pasangan; hanya penerima yang bisa menukarnya, dan isinya tidak bisa diubah setelah dibuat.
 - **Album foto**: foto yang diupload bersamaan tampil sebagai satu polaroid bertumpuk, bisa digeser di layar penuh.
+- **PAP harian** (beranda): kirim satu foto langsung dari kamera, tanpa filter. PAP pasangan terlihat buram sampai kamu ikut kirim PAP hari itu. PAP hilang keesokan harinya (WIB), kecuali disimpan ke Kenangan. Foto disimpan di bucket privat `pap` dan hanya dibuka lewat link sementara.
 - **Rekap tahunan**: muncul di beranda mulai 1 Desember sampai 15 Januari, dan bisa dibuka kapan saja dari tab Kita.
 
 ## Ganti foto profil

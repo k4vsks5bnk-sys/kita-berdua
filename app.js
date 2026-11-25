@@ -130,7 +130,10 @@ const DAILY_QUESTIONS = [
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const MB = 1024 * 1024;
 const IMAGE_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
-const MEMORY_MAX_BYTES = 8 * MB;
+const MEMORY_MAX_BYTES = 25 * MB; // foto dikompres di HP sebelum diupload
+const MEMORY_OUTPUT_PX = 1600;
+const SNAP_OUTPUT_PX = 1080;
+const SNAP_CAPTION_MAX = 120;
 const MEMORY_MAX_FILES = 3;
 const AVATAR_SOURCE_MAX_BYTES = 25 * MB;
 const AVATAR_OUTPUT_PX = 720;
@@ -164,6 +167,10 @@ const state = {
   answersReady: false, // SQL 06
   coupons: [],
   couponsReady: false, // SQL 07
+  snaps: [],
+  snapsReady: false, // SQL 09
+  snapUrls: {}, // storage_path -> signed URL
+  pendingSnap: null, // { blob, url }
   albumsSupported: true, // false jika kolom album_id belum ada (SQL 08)
   celebrated: false,
 };
@@ -378,7 +385,48 @@ const storage = {
       body: blob,
     }),
   remove: (bucket, path) => request(`/storage/v1/object/${bucket}/${encodePath(path)}`, { method: "DELETE" }),
+  // URL sementara untuk bucket privat (dipakai PAP harian)
+  async signedUrl(bucket, path, expiresIn = 3600) {
+    const data = await api(`/storage/v1/object/sign/${bucket}/${encodePath(path)}`, { method: "POST", body: JSON.stringify({ expiresIn }) });
+    return data?.signedURL ? `${SUPABASE_URL}/storage/v1${data.signedURL}` : "";
+  },
 };
+
+/* ---------- Kompres foto di HP sebelum diupload ---------- */
+
+async function loadImage(file) {
+  if ("createImageBitmap" in window) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      /* lanjut ke cara lama */
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function compressImage(file, maxPx, quality = 0.85) {
+  const img = await loadImage(file).catch(() => {
+    throw new Error("Foto tidak bisa dibaca. Coba foto lain.");
+  });
+  const scale = Math.min(1, maxPx / Math.max(img.width, img.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  img.close?.();
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Gagal memproses foto."))), "image/jpeg", quality),
+  );
+}
 
 /* ==========================================================
    Memuat data
@@ -437,6 +485,34 @@ async function loadAnswers() {
   }
 }
 
+async function loadSnaps() {
+  try {
+    state.snaps = (await api("/rest/v1/rpc/list_snaps_today", { method: "POST", body: "{}" })) || [];
+    state.snapsReady = true;
+  } catch {
+    state.snaps = [];
+    state.snapsReady = false;
+    return;
+  }
+  await Promise.all(
+    state.snaps
+      .filter((s) => s.storage_path && !state.snapUrls[s.storage_path])
+      .map(async (s) => {
+        state.snapUrls[s.storage_path] = await storage.signedUrl("pap", s.storage_path).catch(() => "");
+      }),
+  );
+}
+
+// PAP milikku dari hari-hari sebelumnya dihapus otomatis (PAP hanya berlaku sehari).
+async function cleanupOldSnaps() {
+  if (!state.snapsReady) return;
+  const old = await api(`/rest/v1/daily_snaps?select=id,storage_path&author_id=${eq(myUserId())}&day=lt.${wibToday()}`).catch(() => []);
+  for (const s of old || []) {
+    await api(`/rest/v1/daily_snaps?id=${eq(s.id)}`, { method: "DELETE" }).catch(() => {});
+    await storage.remove("pap", s.storage_path).catch(() => {});
+  }
+}
+
 async function loadCoupons() {
   try {
     state.coupons = (await api(`/rest/v1/love_coupons?select=*&couple_id=${eq(state.couple.id)}&order=created_at.desc`)) || [];
@@ -462,7 +538,8 @@ async function loadCouple() {
   state.couple = couples?.[0] || null;
   state.members = members || [];
   state.entries = entries || [];
-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons()]);
+  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps()]);
+  cleanupOldSnaps();
 }
 
 async function reload() {
@@ -671,6 +748,7 @@ function calendarView() {
     .join("");
 
   return `${heroView()}
+    ${snapCard()}
     ${dailyCard()}
     ${homeExtras()}
     <section class="section">
@@ -687,6 +765,144 @@ function calendarView() {
       <div class="section-head"><div><h2>Tanggal penting</h2><p class="hint">Diingatkan setiap tahun</p></div>${addButton("special")}</div>
       ${specialRows ? `<div class="list">${specialRows}</div>` : emptyState("Ulang tahun, hari pertama ketemu, apa saja yang ingin diingat.", "special", "Tambah tanggal")}
     </section>`;
+}
+
+/* ---------- PAP harian ---------- */
+
+function snapTile(snap, name) {
+  const color = colorOf(name);
+  if (!snap) {
+    return `<figure class="snap snap--empty" style="--c:${color}"><div class="snap__frame"><span>Belum kirim</span></div>
+      <figcaption><strong>${esc(name)}</strong></figcaption></figure>`;
+  }
+  const url = snap.storage_path ? state.snapUrls[snap.storage_path] : "";
+  const time = new Date(snap.created_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" });
+  const frame = snap.is_locked
+    ? `<div class="snap__frame snap__frame--locked"><span>${icon("lock")} Kirim PAP-mu dulu</span></div>`
+    : url
+      ? `<button type="button" class="snap__frame" data-action="view-snap" data-id="${esc(snap.id)}" aria-label="Lihat PAP ${esc(name)}"><img src="${esc(url)}" alt="PAP ${esc(name)}" decoding="async"></button>`
+      : `<div class="snap__frame"><span>Foto tidak bisa dimuat</span></div>`;
+  return `<figure class="snap" style="--c:${color}">${frame}
+    <figcaption><strong>${esc(name)}</strong> · ${esc(time)}${snap.caption ? `<span>${esc(snap.caption)}</span>` : ""}</figcaption></figure>`;
+}
+
+function snapCard() {
+  if (!state.snapsReady) {
+    return `<section class="daily"><p class="daily__label">${icon("camera")} PAP hari ini</p>
+      <p class="notice" style="margin:8px 0 0">Fitur ini perlu SQL <code>09-daily-snaps.sql</code> dijalankan dulu di Supabase.</p></section>`;
+  }
+  const me = myName();
+  const partner = partnerName();
+  const mine = state.snaps.find((s) => s.author_id === myUserId());
+  const theirs = state.snaps.find((s) => s.author_id !== myUserId());
+  const status = mine
+    ? theirs
+      ? "PAP kalian hari ini ♡ Hilang besok."
+      : `Menunggu PAP dari ${esc(partner)}…`
+    : theirs
+      ? `${esc(partner)} sudah kirim PAP! Kirim punyamu untuk membukanya.`
+      : "Lagi ngapain? Kirim satu foto, tanpa filter.";
+  return `<section class="daily snaps-card">
+    <p class="daily__label">${icon("camera")} PAP hari ini</p>
+    <p class="daily__status" style="margin-top:6px">${status}</p>
+    <div class="snaps">${snapTile(mine, me)}${snapTile(theirs, partner)}</div>
+    <button type="button" class="btn ${mine ? "btn--soft" : ""} btn--block" data-action="take-snap">${icon("camera")} ${mine ? "Ganti PAP-ku" : "Kirim PAP"}</button>
+  </section>`;
+}
+
+const snapPicker = $("#snap-picker");
+
+function takeSnap() {
+  snapPicker.value = "";
+  snapPicker.click();
+}
+
+snapPicker?.addEventListener("change", async () => {
+  const file = snapPicker.files[0];
+  if (!file) return;
+  try {
+    const blob = await compressImage(file, SNAP_OUTPUT_PX, 0.82);
+    if (state.pendingSnap) URL.revokeObjectURL(state.pendingSnap.url);
+    state.pendingSnap = { blob, url: URL.createObjectURL(blob) };
+    openSheet(
+      "Kirim PAP",
+      `<form data-form="snap">
+        <img class="snap-preview" src="${esc(state.pendingSnap.url)}" alt="Pratinjau PAP">
+        ${field("s-caption", "Caption (opsional)", `<input id="s-caption" name="caption" maxlength="${SNAP_CAPTION_MAX}" placeholder="Lagi di mana, ngapain?">`)}
+        <p class="help">${esc(partnerName())} baru bisa melihatnya setelah ikut kirim PAP hari ini. Besok PAP ini hilang.</p>
+        <div class="sheet__actions">
+          <button type="button" class="btn btn--ghost" data-action="take-snap">Foto ulang</button>
+          <button type="submit" class="btn">Kirim</button>
+        </div>
+      </form>`,
+    );
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+async function sendSnap(form) {
+  if (!state.pendingSnap) throw new Error("Ambil foto dulu.");
+  const old = state.snaps.find((s) => s.author_id === myUserId());
+  const path = `${state.couple.id}/${myUserId()}/${crypto.randomUUID()}.jpg`;
+  await storage.upload("pap", path, state.pendingSnap.blob);
+  try {
+    if (old) await api(`/rest/v1/daily_snaps?id=${eq(old.id)}`, { method: "DELETE" });
+    await api("/rest/v1/daily_snaps", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ couple_id: state.couple.id, author_name: myName(), storage_path: path, caption: formValue(form, "caption") || null }),
+    });
+  } catch (err) {
+    await storage.remove("pap", path).catch(() => {});
+    throw err;
+  }
+  if (old?.storage_path) storage.remove("pap", old.storage_path).catch(() => {});
+  URL.revokeObjectURL(state.pendingSnap.url);
+  state.pendingSnap = null;
+  closeSheet();
+  await loadSnaps();
+  render();
+  const theirs = state.snaps.find((s) => s.author_id !== myUserId());
+  toast(theirs ? `Terbuka! Lihat PAP ${theirs.author_name} ♡` : "PAP terkirim ♡");
+}
+
+function viewSnap(id) {
+  const snap = state.snaps.find((s) => s.id === id);
+  const url = snap?.storage_path && state.snapUrls[snap.storage_path];
+  if (!url) return;
+  openSheet(
+    `PAP ${esc(snap.author_name)}`,
+    `<img class="snap-preview" src="${esc(url)}" alt="PAP ${esc(snap.author_name)}">
+     ${snap.caption ? `<p class="snap-caption">${esc(snap.caption)}</p>` : ""}
+     <p class="help">PAP hilang besok. Simpan ke Kenangan kalau mau diabadikan.</p>
+     <div class="sheet__actions"><button type="button" class="btn" data-action="keep-snap" data-id="${esc(snap.id)}">${icon("heart")} Simpan ke Kenangan</button></div>`,
+  );
+}
+
+async function keepSnap(id) {
+  const snap = state.snaps.find((s) => s.id === id);
+  const url = snap?.storage_path && state.snapUrls[snap.storage_path];
+  if (!url) throw new Error("Foto tidak tersedia.");
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Gagal mengambil foto.");
+  const blob = await res.blob();
+  const path = `${state.couple.id}/${crypto.randomUUID()}.jpg`;
+  await storage.upload("kenangan", path, new Blob([blob], { type: "image/jpeg" }));
+  try {
+    await api("/rest/v1/memory_photos", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ couple_id: state.couple.id, storage_path: path, title: `PAP ${snap.author_name}`, taken_on: snap.day, caption: snap.caption || "" }),
+    });
+  } catch (err) {
+    await storage.remove("kenangan", path).catch(() => {});
+    throw err;
+  }
+  closeSheet();
+  await loadPhotos();
+  render();
+  toast("Disimpan ke Kenangan ♡");
 }
 
 /* ---------- Pertanyaan harian ---------- */
@@ -1723,7 +1939,7 @@ function addPendingPhotos(fileList) {
       break;
     }
     if (!IMAGE_EXT[file.type]) skipped.push(`${file.name}: format tidak didukung`);
-    else if (file.size > MEMORY_MAX_BYTES) skipped.push(`${file.name}: lebih dari 8 MB`);
+    else if (file.size > MEMORY_MAX_BYTES) skipped.push(`${file.name}: lebih dari 25 MB`);
     else state.pendingPhotos.push({ file, url: URL.createObjectURL(file) });
   }
   refreshThumbs();
@@ -1762,8 +1978,10 @@ async function uploadMemoryPhotos(form) {
   try {
     while (state.pendingPhotos.length) {
       const { file, url } = state.pendingPhotos[0];
-      const path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[file.type]}`;
-      await storage.upload("kenangan", path, file);
+      // GIF dibiarkan apa adanya (supaya animasinya tetap), selain itu dikompres jadi JPEG
+      const blob = file.type === "image/gif" ? file : await compressImage(file, MEMORY_OUTPUT_PX);
+      const path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[blob.type]}`;
+      await storage.upload("kenangan", path, blob);
       try {
         await insertRow({ couple_id: state.couple.id, storage_path: path, ...meta });
       } catch (err) {
@@ -2226,6 +2444,15 @@ document.addEventListener("click", async (e) => {
       case "delete-coupon":
         await deleteCoupon(el.dataset.id);
         break;
+      case "take-snap":
+        takeSnap();
+        break;
+      case "view-snap":
+        viewSnap(el.dataset.id);
+        break;
+      case "keep-snap":
+        await withBusy(el, "Menyimpan…", () => keepSnap(el.dataset.id));
+        break;
       case "viewer-step":
         viewerStep(Number(el.dataset.step));
         break;
@@ -2250,6 +2477,7 @@ document.addEventListener("submit", async (e) => {
     letter: () => withBusy(button, "Menyegel…", () => saveLetter(form)),
     answer: () => withBusy(button, "Mengirim…", () => saveAnswer(form)),
     coupon: () => withBusy(button, "Mengirim…", () => saveCoupon(form)),
+    snap: () => withBusy(button, "Mengirim…", () => sendSnap(form)),
   };
   try {
     await handlers[kind]?.();
@@ -2294,5 +2522,22 @@ async function init() {
   render();
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
+
+// Saat aplikasi dibuka lagi (mis. dari home screen), ambil data terbaru
+// supaya jawaban & PAP pasangan langsung kelihatan tanpa reload manual.
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", async () => {
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    return;
+  }
+  if (!state.session || !state.couple || Date.now() - hiddenAt < 30000 || sheetEl || viewerEl) return;
+  try {
+    await loadCouple();
+    render();
+  } catch {
+    /* diam saja; data lama tetap tampil */
+  }
+});
 
 init();
