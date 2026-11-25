@@ -35,6 +35,45 @@ const ICONS = {
   left: '<path d="M15 5l-7 7 7 7"/>',
   right: '<path d="M9 5l7 7-7 7"/>',
 };
+// Hiasan: kucing (warna Aiya) dan anjing (warna Denan) yang mengintip dari menu bawah.
+const PETS = {
+  cat: {
+    label: "kucing",
+    color: "var(--aiya)",
+    says: ["meong ♡", "purrr…", "elus lagi dong", "meong?"],
+    svg: `<svg viewBox="0 0 64 48" aria-hidden="true">
+      <path class="pet__fill" d="M13 27 15 4l13 11zM51 27 49 4 36 15z"/>
+      <path class="pet__tint" d="M17.5 19 18.5 11l5 4.5zM46.5 19 45.5 11l-5 4.5z"/>
+      <ellipse class="pet__fill" cx="32" cy="29" rx="21" ry="15.5"/>
+      <path class="pet__line" d="M22.5 27.5q3-3.2 6 0M35.5 27.5q3-3.2 6 0M32 33.6q-2 3-4.6 1.4M32 33.6q2 3 4.6 1.4"/>
+      <path class="pet__line pet__thin" d="M5 29.5l10 2M6 35.5l9-1.5M59 29.5l-10 2M58 35.5l-9-1.5"/>
+      <path class="pet__ink" d="M30.3 31.4h3.4L32 33.6z"/>
+      <circle class="pet__blush" cx="20" cy="33" r="3"/><circle class="pet__blush" cx="44" cy="33" r="3"/>
+      <ellipse class="pet__fill" cx="20" cy="44.5" rx="6.5" ry="3.8"/><ellipse class="pet__fill" cx="44" cy="44.5" rx="6.5" ry="3.8"/>
+    </svg>`,
+  },
+  dog: {
+    label: "anjing",
+    color: "var(--denan)",
+    says: ["guk! ♡", "guk guk", "main yuk!", "*goyang ekor*"],
+    svg: `<svg viewBox="0 0 64 48" aria-hidden="true">
+      <ellipse class="pet__fill" cx="32" cy="28" rx="18" ry="16.5"/>
+      <ellipse class="pet__tint" cx="39.5" cy="24.5" rx="5.5" ry="4.5"/>
+      <path class="pet__tint" d="M17 12.5C8 13 4.5 27 8.5 35.5c3 4.5 9 1.5 10.5-6.5 1.2-6.5 1.5-13.5-2-16.5zM47 12.5c9 .5 12.5 14.5 8.5 23-3 4.5-9 1.5-10.5-6.5-1.2-6.5-1.5-13.5 2-16.5z"/>
+      <ellipse class="pet__fill" cx="32" cy="34" rx="8.5" ry="6.2"/>
+      <circle class="pet__ink" cx="25" cy="25.5" r="2.2"/><circle class="pet__ink" cx="39" cy="25.5" r="2.2"/>
+      <circle class="pet__shine" cx="25.8" cy="24.7" r=".7"/><circle class="pet__shine" cx="39.8" cy="24.7" r=".7"/>
+      <path class="pet__tongue" d="M29.6 37.2q2.4 5.4 4.8 0z"/>
+      <ellipse class="pet__ink" cx="32" cy="31.4" rx="3.2" ry="2.3"/>
+      <path class="pet__line" d="M32 33.6v2.2M32 35.8q-2.6 2-5.2.2M32 35.8q2.6 2 5.2.2"/>
+      <ellipse class="pet__fill" cx="21" cy="44.5" rx="6.5" ry="3.8"/><ellipse class="pet__fill" cx="43" cy="44.5" rx="6.5" ry="3.8"/>
+    </svg>`,
+  },
+};
+const petButton = (id) =>
+  `<button type="button" class="pet pet--${id}" style="--c:${PETS[id].color}" data-action="pet" data-pet="${id}" aria-label="Elus ${PETS[id].label}">${PETS[id].svg}</button>`;
+const petPair = () => `<div class="pets-pair" aria-hidden="true">${["cat", "dog"].map((id) => `<span style="--c:${PETS[id].color}">${PETS[id].svg}</span>`).join("")}</div>`;
+
 const icon = (name, fill = false) =>
   `<svg viewBox="0 0 24 24" fill="${fill ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${fill ? 0 : 1.9}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
@@ -601,7 +640,7 @@ function addButton(kind, text = "Tambah") {
 }
 
 function emptyState(text, kind, buttonText) {
-  return `<div class="empty"><p>${text}</p>${kind ? addButton(kind, buttonText) : ""}</div>`;
+  return `<div class="empty">${petPair()}<p>${text}</p>${kind ? addButton(kind, buttonText) : ""}</div>`;
 }
 
 function dateBlock(iso, variant = "") {
@@ -1739,7 +1778,7 @@ function notLinkedView() {
 function tabbar() {
   return `<nav class="tabbar" aria-label="Menu utama">${TABS.map(
     (t) => `<button type="button" data-action="tab" data-tab="${t.id}" ${state.tab === t.id ? 'aria-current="page"' : ""}>${icon(t.icon)}<span>${t.name}</span></button>`,
-  ).join("")}</nav>`;
+  ).join("")}${petButton("cat")}${petButton("dog")}</nav>`;
 }
 
 const VIEWS = { calendar: calendarView, plans: plansView, memories: memoriesView, gifts: giftsView, us: usView };
@@ -2515,6 +2554,14 @@ document.addEventListener("click", async (e) => {
       case "logout":
         await logout();
         break;
+      case "pet": {
+        const says = PETS[el.dataset.pet].says;
+        el.dataset.say = says[Math.floor(Math.random() * says.length)];
+        el.classList.remove("is-happy");
+        void el.offsetWidth; // mulai ulang animasi kalau diketuk berkali-kali
+        el.classList.add("is-happy");
+        break;
+      }
       case "add":
         if (el.dataset.kind === "photos") openPhotoSheet();
         else openEntrySheet({ kind: el.dataset.kind });
