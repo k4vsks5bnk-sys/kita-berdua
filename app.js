@@ -170,7 +170,11 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "
 const MB = 1024 * 1024;
 const IMAGE_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
 const MEMORY_MAX_BYTES = 25 * MB; // foto dikompres di HP sebelum diupload
-const MEMORY_OUTPUT_PX = 1600;
+// Foto kenangan: sisi terpanjang 1440 px (tetap tajam di layar HP), disimpan sebagai
+// WebP kalau browser bisa membuatnya (lebih kecil dari JPEG dengan kualitas setara).
+const MEMORY_OUTPUT_PX = 1440;
+const MEMORY_QUALITY = 0.8;
+const GIF_MAX_BYTES = 5 * MB; // GIF tidak dikompres (supaya animasinya tetap), jadi dibatasi
 const SNAP_OUTPUT_PX = 1080;
 const SNAP_CAPTION_MAX = 120;
 const MEMORY_MAX_FILES = 3;
@@ -464,7 +468,19 @@ function saveSnapMirrorPref(v) {
   try { localStorage.setItem(SNAP_MIRROR_KEY, v ? "1" : "0"); } catch {}
 }
 
-async function compressImage(file, maxPx, quality = 0.85, { mirror = false } = {}) {
+// Cek sekali: Chrome/Android bisa membuat WebP; Safari lama diam-diam memberi PNG, jadi pakai JPEG.
+let webpEncodable;
+function canEncodeWebp() {
+  if (webpEncodable === undefined) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    webpEncodable = c.toDataURL("image/webp").startsWith("data:image/webp");
+  }
+  return webpEncodable;
+}
+
+async function compressImage(file, maxPx, quality = 0.85, { mirror = false, webp = false } = {}) {
+  const type = webp && canEncodeWebp() ? "image/webp" : "image/jpeg";
   const img = await loadImage(file).catch(() => {
     throw new Error("Foto tidak bisa dibaca. Coba foto lain.");
   });
@@ -481,7 +497,7 @@ async function compressImage(file, maxPx, quality = 0.85, { mirror = false } = {
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   img.close?.();
   return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Gagal memproses foto."))), "image/jpeg", quality),
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Gagal memproses foto."))), type, quality),
   );
 }
 
@@ -2153,6 +2169,7 @@ function addPendingPhotos(fileList) {
     }
     if (!IMAGE_EXT[file.type]) skipped.push(`${file.name}: format tidak didukung`);
     else if (file.size > MEMORY_MAX_BYTES) skipped.push(`${file.name}: lebih dari 25 MB`);
+    else if (file.type === "image/gif" && file.size > GIF_MAX_BYTES) skipped.push(`${file.name}: GIF lebih dari 5 MB`);
     else state.pendingPhotos.push({ file, url: URL.createObjectURL(file) });
   }
   refreshThumbs();
@@ -2192,9 +2209,19 @@ async function uploadMemoryPhotos(form) {
     while (state.pendingPhotos.length) {
       const { file, url } = state.pendingPhotos[0];
       // GIF dibiarkan apa adanya (supaya animasinya tetap), selain itu dikompres jadi JPEG
-      const blob = file.type === "image/gif" ? file : await compressImage(file, MEMORY_OUTPUT_PX);
-      const path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[blob.type]}`;
-      await storage.upload("kenangan", path, blob);
+      const isGif = file.type === "image/gif";
+      let blob = isGif ? file : await compressImage(file, MEMORY_OUTPUT_PX, MEMORY_QUALITY, { webp: true });
+      let path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[blob.type]}`;
+      try {
+        await storage.upload("kenangan", path, blob);
+      } catch (err) {
+        // Kalau bucket belum menerima WebP, ulangi sebagai JPEG (dan jangan coba WebP lagi).
+        if (blob.type !== "image/webp" || !/mime|type|format/i.test(err.message)) throw err;
+        webpEncodable = false;
+        blob = await compressImage(file, MEMORY_OUTPUT_PX, MEMORY_QUALITY);
+        path = `${state.couple.id}/${crypto.randomUUID()}.jpg`;
+        await storage.upload("kenangan", path, blob);
+      }
       try {
         await insertRow({ couple_id: state.couple.id, storage_path: path, ...meta });
       } catch (err) {

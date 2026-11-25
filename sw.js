@@ -1,5 +1,5 @@
 // Naikkan VERSION setiap kali isi app shell berubah.
-const VERSION = "kita-berdua-v11";
+const VERSION = "kita-berdua-v12";
 const APP_SHELL = [
   "/",
   "/style.css",
