@@ -179,6 +179,12 @@ const GIF_MAX_BYTES = 5 * MB; // GIF tidak dikompres (supaya animasinya tetap), 
 const SNAP_OUTPUT_PX = 1080;
 const SNAP_CAPTION_MAX = 120;
 const MEMORY_MAX_FILES = 3;
+// Journey: ukuran "medium" — 1080 px di sisi terpanjang, WebP (JPEG di Safari lama).
+// Tajam di layar HP, biasanya cuma ±100–250 KB per foto.
+const JOURNEY_PX = 1080;
+const JOURNEY_QUALITY = 0.76;
+const JOURNEY_CAPTION_MAX = 500;
+const JOURNEY_SOURCE_MAX_BYTES = 25 * MB;
 const AVATAR_SOURCE_MAX_BYTES = 25 * MB;
 const AVATAR_OUTPUT_PX = 720;
 const ZOOM_MAX = 4;
@@ -222,6 +228,10 @@ const state = {
   kangenReady: false, // SQL 10
   snapUrls: {}, // storage_path -> signed URL
   pendingSnap: null, // { blob, url }
+  journey: [],
+  journeyReady: false, // SQL 12
+  pendingJourney: null, // { file, blob, url, width, height }
+  memView: "gallery", // tab Kenangan: "gallery" | "journey"
   albumsSupported: true, // false jika kolom album_id belum ada (SQL 08)
   celebrated: false,
 };
@@ -355,6 +365,7 @@ function clearCoupleData() {
     couple: null, members: [], entries: [], hobbies: {},
     letters: [], lettersReady: false, answers: [], answersReady: false, coupons: [], couponsReady: false,
     kangen: [], kangenReady: false, cycles: [], cyclesReady: false,
+    journey: [], journeyReady: false,
   });
 }
 
@@ -522,6 +533,16 @@ async function loadPhotos() {
   }
 }
 
+async function loadJourney() {
+  try {
+    state.journey = (await api(`/rest/v1/journey_photos?select=*&couple_id=${eq(state.couple.id)}&order=taken_on.desc,created_at.desc`)) || [];
+    state.journeyReady = true;
+  } catch {
+    state.journey = [];
+    state.journeyReady = false; // tabel belum dibuat (SQL 12)
+  }
+}
+
 async function loadProfilePhotos() {
   try {
     state.profilePhotos = (await api("/rest/v1/profile_photos?select=couple_id,slot,storage_path")) || [];
@@ -628,7 +649,7 @@ async function loadCouple() {
   state.couple = couples?.[0] || null;
   state.members = members || [];
   state.entries = entries || [];
-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen(), loadCycles()]);
+  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen(), loadCycles(), loadJourney()]);
   cleanupOldSnaps();
 }
 
@@ -1378,13 +1399,24 @@ function polaroidCard(p, note, count = 1) {
   </button>`;
 }
 
+function memoriesSwitch() {
+  const views = [["gallery", "Galeri & cerita"], ["journey", "Journey"]];
+  return `<div class="segmented segmented--tabs" role="tablist" aria-label="Tampilan kenangan">${views
+    .map(([id, label]) => `<button type="button" role="tab" aria-selected="${state.memView === id}" data-action="mem-view" data-view="${id}">${label}</button>`)
+    .join("")}</div>`;
+}
+
 function memoriesView() {
+  if (state.memView === "journey") {
+    return `${pageHead("Kenangan", "Perjalanan kita, satu foto demi satu foto")}${memoriesSwitch()}${journeySection()}`;
+  }
   const stories = entriesOf("memory")
     .sort((a, b) => (b.event_date || "").localeCompare(a.event_date || ""))
     .map((x) => entryRow(x, { lead: dateBlock(x.event_date), meta: x.event_date ? esc(formatDate(x.event_date)) : "" }))
     .join("");
   const gallery = polaroids();
   return `${pageHead("Kenangan", "Momen kecil yang ingin kita ingat selamanya")}
+    ${memoriesSwitch()}
     <section class="section">
       <div class="section-head"><h2>Galeri</h2>${addButton("photos", "Foto")}</div>
       ${gallery || emptyState("Belum ada foto. Abadikan momen pertama kalian di sini.", "photos", "Tambah foto")}
@@ -1393,6 +1425,175 @@ function memoriesView() {
       <div class="section-head"><div><h2>Cerita kita</h2><p class="hint">Catatan tanpa foto</p></div>${addButton("memory", "Tulis")}</div>
       ${stories ? `<div class="list">${stories}</div>` : emptyState("Tulis cerita yang tidak sempat difoto.", "memory", "Tulis cerita")}
     </section>`;
+}
+
+/* ---------- Journey: satu foto + keterangan, urut seperti linimasa ---------- */
+
+const monthLabel = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return y && m ? `${MONTHS_LONG[m - 1]} ${y}` : "";
+};
+const formatKB = (bytes) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+function journeySection() {
+  const head = `<div class="section-head"><div><h2>Journey kita</h2><p class="hint">Satu foto, satu cerita singkat</p></div>${state.journeyReady ? addButton("journey", "Foto") : ""}</div>`;
+  if (!state.journeyReady) {
+    return `<section class="section">${head}<div class="notice">Journey belum siap. Jalankan <code>12-journey.sql</code> di Supabase → SQL Editor dulu.</div></section>`;
+  }
+  if (!state.journey.length) {
+    return `<section class="section">${head}${emptyState("Mulai journey kalian dari satu foto.", "journey", "Tambah foto")}</section>`;
+  }
+  let lastMonth = "";
+  const items = state.journey
+    .map((j) => {
+      const month = (j.taken_on || j.created_at || "").slice(0, 7);
+      const header = month !== lastMonth ? `<h3 class="journey__month">${esc(monthLabel(month))}</h3>` : "";
+      lastMonth = month;
+      return header + journeyCard(j);
+    })
+    .join("");
+  return `<section class="section">${head}<div class="journey">${items}</div></section>`;
+}
+
+function journeyCard(j) {
+  // Pakai rasio asli foto (supaya halaman tidak loncat saat foto dimuat),
+  // tapi foto yang sangat tinggi dipotong jadi 4:5 dan panorama jadi 2:1.
+  const ratio = j.width && j.height ? Math.min(Math.max(j.width / j.height, 0.8), 2) : 1;
+  return `<article class="journey__item">
+    <button type="button" class="journey__card" data-action="view-journey" data-id="${esc(j.id)}" aria-label="Lihat foto ${esc(formatDate(j.taken_on))}">
+      <img src="${esc(storage.publicUrl("journey", j.storage_path))}" alt="" loading="lazy" decoding="async" style="aspect-ratio:${ratio.toFixed(4)}">
+      <span class="journey__body">
+        <span class="journey__date">${esc(formatDate(j.taken_on))}</span>
+        ${j.caption ? `<span class="journey__caption">${esc(j.caption)}</span>` : ""}
+      </span>
+    </button>
+  </article>`;
+}
+
+function journeyPreviewMarkup() {
+  const p = state.pendingJourney;
+  if (!p) return "";
+  return `<figure class="journey-pick">
+    <img class="snap-preview" src="${esc(p.url)}" alt="Foto yang dipilih">
+    <figcaption><span>${p.width}×${p.height} · ${formatKB(p.blob.size)}</span>
+      <button type="button" class="btn btn--sm btn--ghost" data-action="journey-repick">Ganti foto</button></figcaption>
+  </figure>`;
+}
+
+function clearPendingJourney() {
+  if (state.pendingJourney) URL.revokeObjectURL(state.pendingJourney.url);
+  state.pendingJourney = null;
+}
+
+function openJourneySheet(id) {
+  const editing = id ? state.journey.find((j) => j.id === id) : null;
+  if (id && !editing) return;
+  const photo = editing
+    ? `<img class="snap-preview" src="${esc(storage.publicUrl("journey", editing.storage_path))}" alt="">`
+    : `<label class="drop" data-journey-drop>${icon("upload")}<span><strong>Pilih foto</strong> dari galeri HP</span>
+        <small>Otomatis diperkecil supaya tetap jelas tapi hemat penyimpanan</small>
+        <input type="file" accept="image/*" data-journey-input></label>
+      <div data-journey-preview></div>`;
+  openSheet(
+    editing ? "Ubah journey" : "Tambah ke journey",
+    `<form data-form="journey" ${editing ? `data-editing="${esc(editing.id)}"` : ""}>
+      ${photo}
+      ${field("j-caption", "Keterangan", `<textarea id="j-caption" name="caption" maxlength="${JOURNEY_CAPTION_MAX}" placeholder="Lagi di mana, ngapain, rasanya gimana…">${esc(editing?.caption)}</textarea>`)}
+      ${field("j-date", "Tanggal", `<input id="j-date" name="taken_on" type="date" required value="${esc(editing?.taken_on || todayISO())}">`)}
+      <div class="sheet__actions">
+        ${editing ? `<button type="button" class="btn btn--danger" data-action="delete-journey" data-id="${esc(editing.id)}">Hapus</button>` : ""}
+        <button type="submit" class="btn">${editing ? "Simpan" : "Upload"}</button>
+      </div>
+    </form>`,
+  );
+}
+
+async function imageSize(blob) {
+  const img = await loadImage(blob);
+  const size = { width: img.width, height: img.height };
+  img.close?.();
+  return size;
+}
+
+// Foto langsung dikompres saat dipilih, jadi preview = hasil yang akan diupload.
+async function pickJourneyFile(file) {
+  if (!file) return;
+  if (!file.type.startsWith("image/")) throw new Error("Pilih file foto ya.");
+  if (file.size > JOURNEY_SOURCE_MAX_BYTES) throw new Error("Foto lebih dari 25 MB.");
+  const box = $("[data-journey-preview]");
+  if (box) box.innerHTML = `<p class="help">Memproses foto…</p>`;
+  try {
+    const blob = await compressImage(file, JOURNEY_PX, JOURNEY_QUALITY, { webp: true });
+    const { width, height } = await imageSize(blob);
+    clearPendingJourney();
+    state.pendingJourney = { file, blob, width, height, url: URL.createObjectURL(blob) };
+  } finally {
+    if (box?.isConnected) box.innerHTML = journeyPreviewMarkup();
+    const drop = $("[data-journey-drop]");
+    if (drop) drop.hidden = !!state.pendingJourney;
+  }
+}
+
+async function saveJourney(form) {
+  if (!form.reportValidity()) return;
+  const caption = formValue(form, "caption") || "";
+  const taken_on = formValue(form, "taken_on") || todayISO();
+  const editingId = form.dataset.editing;
+  if (editingId) {
+    await api(`/rest/v1/journey_photos?id=${eq(editingId)}`, { method: "PATCH", body: JSON.stringify({ caption, taken_on }) });
+  } else {
+    const p = state.pendingJourney;
+    if (!p) throw new Error("Pilih fotonya dulu.");
+    let { blob } = p;
+    let path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[blob.type]}`;
+    try {
+      await storage.upload("journey", path, blob);
+    } catch (err) {
+      // Kalau bucket belum menerima WebP, ulangi sebagai JPEG.
+      if (blob.type !== "image/webp" || !/mime|type|format/i.test(err.message)) throw err;
+      webpEncodable = false;
+      blob = await compressImage(p.file, JOURNEY_PX, JOURNEY_QUALITY);
+      path = `${state.couple.id}/${crypto.randomUUID()}.jpg`;
+      await storage.upload("journey", path, blob);
+    }
+    try {
+      await api("/rest/v1/journey_photos", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ couple_id: state.couple.id, storage_path: path, caption, taken_on, width: p.width, height: p.height }),
+      });
+    } catch (err) {
+      await storage.remove("journey", path).catch(() => {});
+      throw err;
+    }
+  }
+  closeSheet();
+  await loadJourney();
+  render();
+  toast(editingId ? "Journey diperbarui ♡" : "Masuk ke journey ♡");
+}
+
+function viewJourney(id) {
+  const j = state.journey.find((x) => x.id === id);
+  if (!j) return;
+  openSheet(
+    esc(formatDate(j.taken_on)),
+    `<img class="snap-preview" src="${esc(storage.publicUrl("journey", j.storage_path))}" alt="${esc(j.caption || "Foto journey")}">
+     ${j.caption ? `<p class="snap-caption journey-full">${esc(j.caption)}</p>` : ""}
+     <div class="sheet__actions"><button type="button" class="btn btn--soft" data-action="edit-journey" data-id="${esc(j.id)}">${icon("pen")} Ubah</button></div>`,
+  );
+}
+
+async function deleteJourney(id) {
+  const j = state.journey.find((x) => x.id === id);
+  if (!j || !confirm("Hapus foto ini dari journey?")) return;
+  // Hapus baris database dulu agar linimasa tidak pernah menampilkan foto rusak.
+  await api(`/rest/v1/journey_photos?id=${eq(id)}`, { method: "DELETE" });
+  await storage.remove("journey", j.storage_path).catch(() => {});
+  closeSheet();
+  await loadJourney();
+  render();
+  toast("Foto dihapus dari journey.");
 }
 
 /* ---------- Hadiah ---------- */
@@ -2062,6 +2263,7 @@ function openSheet(title, body) {
 
 function closeSheet(restoreFocus = true) {
   stopSnapCamera();
+  clearPendingJourney();
   if (!sheetEl) return;
   sheetEl.remove();
   sheetEl = null;
@@ -2815,6 +3017,7 @@ document.addEventListener("click", async (e) => {
       }
       case "add":
         if (el.dataset.kind === "photos") openPhotoSheet();
+        else if (el.dataset.kind === "journey") openJourneySheet();
         else openEntrySheet({ kind: el.dataset.kind });
         break;
       case "edit":
@@ -2957,6 +3160,24 @@ document.addEventListener("click", async (e) => {
       case "keep-snap":
         await withBusy(el, "Menyimpan…", () => keepSnap(el.dataset.id));
         break;
+      case "mem-view":
+        if (state.memView !== el.dataset.view) {
+          state.memView = el.dataset.view;
+          render();
+        }
+        break;
+      case "view-journey":
+        viewJourney(el.dataset.id);
+        break;
+      case "edit-journey":
+        openJourneySheet(el.dataset.id);
+        break;
+      case "delete-journey":
+        await withBusy(el, "Menghapus…", () => deleteJourney(el.dataset.id));
+        break;
+      case "journey-repick":
+        $("[data-journey-input]")?.click();
+        break;
       case "viewer-step":
         viewerStep(Number(el.dataset.step));
         break;
@@ -2983,6 +3204,7 @@ document.addEventListener("submit", async (e) => {
     coupon: () => withBusy(button, "Mengirim…", () => saveCoupon(form)),
     snap: () => withBusy(button, "Mengirim…", () => sendSnap(form)),
     cycle: () => withBusy(button, "Menyimpan…", () => saveCycle(form)),
+    journey: () => withBusy(button, "Mengunggah…", () => saveJourney(form)),
   };
   try {
     await handlers[kind]?.();
@@ -2995,6 +3217,10 @@ document.addEventListener("change", (e) => {
   if (e.target.matches("[data-photo-input]")) {
     addPendingPhotos([...e.target.files]);
     e.target.value = "";
+  } else if (e.target.matches("[data-journey-input]")) {
+    const file = e.target.files[0];
+    e.target.value = "";
+    pickJourneyFile(file).catch((err) => toast(err.message, true));
   } else if (e.target.matches("[data-category-switch]")) {
     switchEntryCategory(e.target);
   }

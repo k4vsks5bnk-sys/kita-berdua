@@ -1403,3 +1403,83 @@ h1, h2, h3 { font-weight: 400; margin: 0; }
   .pet.is-happy::after { animation: pet-say-still 1.8s steps(1) forwards !important; translate: -50% 0; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Kenangan: pilihan Galeri / Journey ---------- */
+.segmented--tabs { margin: 22px 0 0; }
+.segmented--tabs button {
+  border: 0;
+  background: transparent;
+  padding: 10px;
+  border-radius: 11px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.segmented--tabs button[aria-selected="true"] { background: #fff; color: var(--kita); box-shadow: 0 2px 8px #8f347826; }
+
+/* ---------- Journey: linimasa foto + keterangan ---------- */
+.journey { position: relative; padding-left: 24px; }
+.journey::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(var(--aiya), var(--kita), var(--denan));
+  opacity: 0.35;
+}
+.journey__month { position: relative; font-family: var(--serif); font-size: 17px; color: var(--kita); margin: 26px 0 10px; }
+.journey__month:first-child { margin-top: 2px; }
+.journey__month::before {
+  content: "";
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: var(--kita);
+  box-shadow: 0 0 0 4px var(--bg);
+}
+.journey__item + .journey__item { margin-top: 16px; }
+.journey__card {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface);
+  text-align: left;
+  box-shadow: 0 1px 2px #2b16221a, 0 10px 24px #2b162212;
+  transition: transform 0.2s ease;
+}
+.journey__card:active { transform: scale(0.99); }
+.journey__card img { display: block; width: 100%; max-height: 520px; object-fit: cover; background: #f6e6ef; }
+.journey__body { display: block; padding: 12px 16px 16px; }
+.journey__date { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.journey__caption {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.journey-pick { margin: 0; }
+.journey-pick figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -6px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.journey-full { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .journey__card { transition: none; } }

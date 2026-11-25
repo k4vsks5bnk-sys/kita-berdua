@@ -21,6 +21,7 @@ supabase/
   07-love-coupons.sql   kupon cinta (hanya penerima yang bisa menukar)
   08-photo-albums.sql   album: beberapa foto dalam satu kenangan
   09-daily-snaps.sql    PAP harian (bucket privat, terbuka setelah ikut kirim)
+12-journey.sql          Journey: foto + keterangan (tabel privat, bucket `journey`)
 ```
 
 Nama dan warna pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`. Warna dasar ada di bagian `:root` di `style.css` (`--aiya`, `--denan`, `--kita`).
@@ -58,6 +59,7 @@ Setiap kali `style.css` atau `app.js` berubah, naikkan `VERSION` di `sw.js` agar
 - **Kupon cinta** (tab Hadiah): buat kupon untuk pasangan; hanya penerima yang bisa menukarnya, dan isinya tidak bisa diubah setelah dibuat.
 - **Album foto**: foto yang diupload bersamaan tampil sebagai satu polaroid bertumpuk, bisa digeser di layar penuh.
 - **PAP harian** (beranda): kirim satu foto langsung dari kamera, tanpa filter. PAP pasangan terlihat buram sampai kamu ikut kirim PAP hari itu. PAP hilang keesokan harinya (WIB), kecuali disimpan ke Kenangan. Foto disimpan di bucket privat `pap` dan hanya dibuka lewat link sementara.
+- **Journey** (tab Kenangan → Journey): satu foto + keterangan, tampil sebagai linimasa per bulan. Foto dikompres di HP jadi 1080 px WebP (±100–250 KB), bucket dibatasi 1 MB per file. Jalankan `12-journey.sql` sekali.
 - **Rekap tahunan**: muncul di beranda mulai 1 Desember sampai 15 Januari, dan bisa dibuka kapan saja dari tab Kita.
 
 ## Ganti foto profil

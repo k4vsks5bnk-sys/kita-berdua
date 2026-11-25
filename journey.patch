@@ -1,0 +1,501 @@
+diff --git a/12-journey.sql b/12-journey.sql
+new file mode 100644
+index 0000000..7a647d8
+--- /dev/null
++++ b/12-journey.sql
+@@ -0,0 +1,53 @@
++-- Journey (tab Kenangan → Journey): satu foto + keterangan, urut seperti linimasa.
++-- Jalankan sekali di Supabase -> SQL Editor (aman dijalankan ulang).
++-- Data (keterangan, tanggal) hanya untuk berdua. File foto ada di bucket publik `journey`
++-- dengan nama acak, jadi hanya bisa dibuka oleh yang punya link-nya (sama seperti galeri).
++
++create table if not exists public.journey_photos (
++  id uuid primary key default gen_random_uuid(),
++  couple_id uuid not null references public.couples(id) on delete cascade,
++  storage_path text not null unique,
++  caption text not null default '' check (char_length(caption) <= 500),
++  taken_on date not null default current_date,
++  width int,
++  height int,
++  created_by uuid not null default auth.uid(),
++  created_at timestamptz not null default now()
++);
++create index if not exists journey_photos_couple_time on public.journey_photos (couple_id, taken_on desc, created_at desc);
++
++alter table public.journey_photos enable row level security;
++grant select, insert, update, delete on public.journey_photos to authenticated;
++
++drop policy if exists "Couple members manage journey" on public.journey_photos;
++create policy "Couple members manage journey" on public.journey_photos
++  for all to authenticated
++  using (exists (select 1 from public.couple_members cm
++                 where cm.couple_id = journey_photos.couple_id and cm.user_id = auth.uid()))
++  with check (exists (select 1 from public.couple_members cm
++                      where cm.couple_id = journey_photos.couple_id and cm.user_id = auth.uid()));
++
++-- Bucket: maksimal 1 MB per file, hanya WebP/JPEG (foto sudah dikompres di HP).
++insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
++values ('journey', 'journey', true, 1048576, array['image/webp', 'image/jpeg'])
++on conflict (id) do update
++  set public = excluded.public,
++      file_size_limit = excluded.file_size_limit,
++      allowed_mime_types = excluded.allowed_mime_types;
++
++-- Upload & hapus hanya ke folder couple sendiri: journey/<couple_id>/<acak>.webp
++drop policy if exists "Journey upload by couple" on storage.objects;
++create policy "Journey upload by couple" on storage.objects
++  for insert to authenticated with check (
++    bucket_id = 'journey'
++    and exists (select 1 from public.couple_members cm
++                where cm.user_id = auth.uid() and cm.couple_id::text = (storage.foldername(name))[1])
++  );
++
++drop policy if exists "Journey delete by couple" on storage.objects;
++create policy "Journey delete by couple" on storage.objects
++  for delete to authenticated using (
++    bucket_id = 'journey'
++    and exists (select 1 from public.couple_members cm
++                where cm.user_id = auth.uid() and cm.couple_id::text = (storage.foldername(name))[1])
++  );
+diff --git a/README.md b/README.md
+index 1296449..00c8f05 100644
+--- a/README.md
++++ b/README.md
+@@ -21,6 +21,7 @@ supabase/
+   07-love-coupons.sql   kupon cinta (hanya penerima yang bisa menukar)
+   08-photo-albums.sql   album: beberapa foto dalam satu kenangan
+   09-daily-snaps.sql    PAP harian (bucket privat, terbuka setelah ikut kirim)
++12-journey.sql          Journey: foto + keterangan (tabel privat, bucket `journey`)
+ ```
+ 
+ Nama dan warna pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`. Warna dasar ada di bagian `:root` di `style.css` (`--aiya`, `--denan`, `--kita`).
+@@ -58,6 +59,7 @@ Setiap kali `style.css` atau `app.js` berubah, naikkan `VERSION` di `sw.js` agar
+ - **Kupon cinta** (tab Hadiah): buat kupon untuk pasangan; hanya penerima yang bisa menukarnya, dan isinya tidak bisa diubah setelah dibuat.
+ - **Album foto**: foto yang diupload bersamaan tampil sebagai satu polaroid bertumpuk, bisa digeser di layar penuh.
+ - **PAP harian** (beranda): kirim satu foto langsung dari kamera, tanpa filter. PAP pasangan terlihat buram sampai kamu ikut kirim PAP hari itu. PAP hilang keesokan harinya (WIB), kecuali disimpan ke Kenangan. Foto disimpan di bucket privat `pap` dan hanya dibuka lewat link sementara.
++- **Journey** (tab Kenangan → Journey): satu foto + keterangan, tampil sebagai linimasa per bulan. Foto dikompres di HP jadi 1080 px WebP (±100–250 KB), bucket dibatasi 1 MB per file. Jalankan `12-journey.sql` sekali.
+ - **Rekap tahunan**: muncul di beranda mulai 1 Desember sampai 15 Januari, dan bisa dibuka kapan saja dari tab Kita.
+ 
+ ## Ganti foto profil
+diff --git a/app.js b/app.js
+index b8884c5..aaee117 100644
+--- a/app.js
++++ b/app.js
+@@ -179,6 +179,12 @@ const GIF_MAX_BYTES = 5 * MB; // GIF tidak dikompres (supaya animasinya tetap),
+ const SNAP_OUTPUT_PX = 1080;
+ const SNAP_CAPTION_MAX = 120;
+ const MEMORY_MAX_FILES = 3;
++// Journey: ukuran "medium" — 1080 px di sisi terpanjang, WebP (JPEG di Safari lama).
++// Tajam di layar HP, biasanya cuma ±100–250 KB per foto.
++const JOURNEY_PX = 1080;
++const JOURNEY_QUALITY = 0.76;
++const JOURNEY_CAPTION_MAX = 500;
++const JOURNEY_SOURCE_MAX_BYTES = 25 * MB;
+ const AVATAR_SOURCE_MAX_BYTES = 25 * MB;
+ const AVATAR_OUTPUT_PX = 720;
+ const ZOOM_MAX = 4;
+@@ -222,6 +228,10 @@ const state = {
+   kangenReady: false, // SQL 10
+   snapUrls: {}, // storage_path -> signed URL
+   pendingSnap: null, // { blob, url }
++  journey: [],
++  journeyReady: false, // SQL 12
++  pendingJourney: null, // { file, blob, url, width, height }
++  memView: "gallery", // tab Kenangan: "gallery" | "journey"
+   albumsSupported: true, // false jika kolom album_id belum ada (SQL 08)
+   celebrated: false,
+ };
+@@ -355,6 +365,7 @@ function clearCoupleData() {
+     couple: null, members: [], entries: [], hobbies: {},
+     letters: [], lettersReady: false, answers: [], answersReady: false, coupons: [], couponsReady: false,
+     kangen: [], kangenReady: false, cycles: [], cyclesReady: false,
++    journey: [], journeyReady: false,
+   });
+ }
+ 
+@@ -522,6 +533,16 @@ async function loadPhotos() {
+   }
+ }
+ 
++async function loadJourney() {
++  try {
++    state.journey = (await api(`/rest/v1/journey_photos?select=*&couple_id=${eq(state.couple.id)}&order=taken_on.desc,created_at.desc`)) || [];
++    state.journeyReady = true;
++  } catch {
++    state.journey = [];
++    state.journeyReady = false; // tabel belum dibuat (SQL 12)
++  }
++}
++
+ async function loadProfilePhotos() {
+   try {
+     state.profilePhotos = (await api("/rest/v1/profile_photos?select=couple_id,slot,storage_path")) || [];
+@@ -628,7 +649,7 @@ async function loadCouple() {
+   state.couple = couples?.[0] || null;
+   state.members = members || [];
+   state.entries = entries || [];
+-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen(), loadCycles()]);
++  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen(), loadCycles(), loadJourney()]);
+   cleanupOldSnaps();
+ }
+ 
+@@ -1378,13 +1399,24 @@ function polaroidCard(p, note, count = 1) {
+   </button>`;
+ }
+ 
++function memoriesSwitch() {
++  const views = [["gallery", "Galeri & cerita"], ["journey", "Journey"]];
++  return `<div class="segmented segmented--tabs" role="tablist" aria-label="Tampilan kenangan">${views
++    .map(([id, label]) => `<button type="button" role="tab" aria-selected="${state.memView === id}" data-action="mem-view" data-view="${id}">${label}</button>`)
++    .join("")}</div>`;
++}
++
+ function memoriesView() {
++  if (state.memView === "journey") {
++    return `${pageHead("Kenangan", "Perjalanan kita, satu foto demi satu foto")}${memoriesSwitch()}${journeySection()}`;
++  }
+   const stories = entriesOf("memory")
+     .sort((a, b) => (b.event_date || "").localeCompare(a.event_date || ""))
+     .map((x) => entryRow(x, { lead: dateBlock(x.event_date), meta: x.event_date ? esc(formatDate(x.event_date)) : "" }))
+     .join("");
+   const gallery = polaroids();
+   return `${pageHead("Kenangan", "Momen kecil yang ingin kita ingat selamanya")}
++    ${memoriesSwitch()}
+     <section class="section">
+       <div class="section-head"><h2>Galeri</h2>${addButton("photos", "Foto")}</div>
+       ${gallery || emptyState("Belum ada foto. Abadikan momen pertama kalian di sini.", "photos", "Tambah foto")}
+@@ -1395,6 +1427,175 @@ function memoriesView() {
+     </section>`;
+ }
+ 
++/* ---------- Journey: satu foto + keterangan, urut seperti linimasa ---------- */
++
++const monthLabel = (ym) => {
++  const [y, m] = ym.split("-").map(Number);
++  return y && m ? `${MONTHS_LONG[m - 1]} ${y}` : "";
++};
++const formatKB = (bytes) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
++
++function journeySection() {
++  const head = `<div class="section-head"><div><h2>Journey kita</h2><p class="hint">Satu foto, satu cerita singkat</p></div>${state.journeyReady ? addButton("journey", "Foto") : ""}</div>`;
++  if (!state.journeyReady) {
++    return `<section class="section">${head}<div class="notice">Journey belum siap. Jalankan <code>12-journey.sql</code> di Supabase → SQL Editor dulu.</div></section>`;
++  }
++  if (!state.journey.length) {
++    return `<section class="section">${head}${emptyState("Mulai journey kalian dari satu foto.", "journey", "Tambah foto")}</section>`;
++  }
++  let lastMonth = "";
++  const items = state.journey
++    .map((j) => {
++      const month = (j.taken_on || j.created_at || "").slice(0, 7);
++      const header = month !== lastMonth ? `<h3 class="journey__month">${esc(monthLabel(month))}</h3>` : "";
++      lastMonth = month;
++      return header + journeyCard(j);
++    })
++    .join("");
++  return `<section class="section">${head}<div class="journey">${items}</div></section>`;
++}
++
++function journeyCard(j) {
++  // Pakai rasio asli foto (supaya halaman tidak loncat saat foto dimuat),
++  // tapi foto yang sangat tinggi dipotong jadi 4:5 dan panorama jadi 2:1.
++  const ratio = j.width && j.height ? Math.min(Math.max(j.width / j.height, 0.8), 2) : 1;
++  return `<article class="journey__item">
++    <button type="button" class="journey__card" data-action="view-journey" data-id="${esc(j.id)}" aria-label="Lihat foto ${esc(formatDate(j.taken_on))}">
++      <img src="${esc(storage.publicUrl("journey", j.storage_path))}" alt="" loading="lazy" decoding="async" style="aspect-ratio:${ratio.toFixed(4)}">
++      <span class="journey__body">
++        <span class="journey__date">${esc(formatDate(j.taken_on))}</span>
++        ${j.caption ? `<span class="journey__caption">${esc(j.caption)}</span>` : ""}
++      </span>
++    </button>
++  </article>`;
++}
++
++function journeyPreviewMarkup() {
++  const p = state.pendingJourney;
++  if (!p) return "";
++  return `<figure class="journey-pick">
++    <img class="snap-preview" src="${esc(p.url)}" alt="Foto yang dipilih">
++    <figcaption><span>${p.width}×${p.height} · ${formatKB(p.blob.size)}</span>
++      <button type="button" class="btn btn--sm btn--ghost" data-action="journey-repick">Ganti foto</button></figcaption>
++  </figure>`;
++}
++
++function clearPendingJourney() {
++  if (state.pendingJourney) URL.revokeObjectURL(state.pendingJourney.url);
++  state.pendingJourney = null;
++}
++
++function openJourneySheet(id) {
++  const editing = id ? state.journey.find((j) => j.id === id) : null;
++  if (id && !editing) return;
++  const photo = editing
++    ? `<img class="snap-preview" src="${esc(storage.publicUrl("journey", editing.storage_path))}" alt="">`
++    : `<label class="drop" data-journey-drop>${icon("upload")}<span><strong>Pilih foto</strong> dari galeri HP</span>
++        <small>Otomatis diperkecil supaya tetap jelas tapi hemat penyimpanan</small>
++        <input type="file" accept="image/*" data-journey-input></label>
++      <div data-journey-preview></div>`;
++  openSheet(
++    editing ? "Ubah journey" : "Tambah ke journey",
++    `<form data-form="journey" ${editing ? `data-editing="${esc(editing.id)}"` : ""}>
++      ${photo}
++      ${field("j-caption", "Keterangan", `<textarea id="j-caption" name="caption" maxlength="${JOURNEY_CAPTION_MAX}" placeholder="Lagi di mana, ngapain, rasanya gimana…">${esc(editing?.caption)}</textarea>`)}
++      ${field("j-date", "Tanggal", `<input id="j-date" name="taken_on" type="date" required value="${esc(editing?.taken_on || todayISO())}">`)}
++      <div class="sheet__actions">
++        ${editing ? `<button type="button" class="btn btn--danger" data-action="delete-journey" data-id="${esc(editing.id)}">Hapus</button>` : ""}
++        <button type="submit" class="btn">${editing ? "Simpan" : "Upload"}</button>
++      </div>
++    </form>`,
++  );
++}
++
++async function imageSize(blob) {
++  const img = await loadImage(blob);
++  const size = { width: img.width, height: img.height };
++  img.close?.();
++  return size;
++}
++
++// Foto langsung dikompres saat dipilih, jadi preview = hasil yang akan diupload.
++async function pickJourneyFile(file) {
++  if (!file) return;
++  if (!file.type.startsWith("image/")) throw new Error("Pilih file foto ya.");
++  if (file.size > JOURNEY_SOURCE_MAX_BYTES) throw new Error("Foto lebih dari 25 MB.");
++  const box = $("[data-journey-preview]");
++  if (box) box.innerHTML = `<p class="help">Memproses foto…</p>`;
++  try {
++    const blob = await compressImage(file, JOURNEY_PX, JOURNEY_QUALITY, { webp: true });
++    const { width, height } = await imageSize(blob);
++    clearPendingJourney();
++    state.pendingJourney = { file, blob, width, height, url: URL.createObjectURL(blob) };
++  } finally {
++    if (box?.isConnected) box.innerHTML = journeyPreviewMarkup();
++    const drop = $("[data-journey-drop]");
++    if (drop) drop.hidden = !!state.pendingJourney;
++  }
++}
++
++async function saveJourney(form) {
++  if (!form.reportValidity()) return;
++  const caption = formValue(form, "caption") || "";
++  const taken_on = formValue(form, "taken_on") || todayISO();
++  const editingId = form.dataset.editing;
++  if (editingId) {
++    await api(`/rest/v1/journey_photos?id=${eq(editingId)}`, { method: "PATCH", body: JSON.stringify({ caption, taken_on }) });
++  } else {
++    const p = state.pendingJourney;
++    if (!p) throw new Error("Pilih fotonya dulu.");
++    let { blob } = p;
++    let path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[blob.type]}`;
++    try {
++      await storage.upload("journey", path, blob);
++    } catch (err) {
++      // Kalau bucket belum menerima WebP, ulangi sebagai JPEG.
++      if (blob.type !== "image/webp" || !/mime|type|format/i.test(err.message)) throw err;
++      webpEncodable = false;
++      blob = await compressImage(p.file, JOURNEY_PX, JOURNEY_QUALITY);
++      path = `${state.couple.id}/${crypto.randomUUID()}.jpg`;
++      await storage.upload("journey", path, blob);
++    }
++    try {
++      await api("/rest/v1/journey_photos", {
++        method: "POST",
++        headers: { Prefer: "return=minimal" },
++        body: JSON.stringify({ couple_id: state.couple.id, storage_path: path, caption, taken_on, width: p.width, height: p.height }),
++      });
++    } catch (err) {
++      await storage.remove("journey", path).catch(() => {});
++      throw err;
++    }
++  }
++  closeSheet();
++  await loadJourney();
++  render();
++  toast(editingId ? "Journey diperbarui ♡" : "Masuk ke journey ♡");
++}
++
++function viewJourney(id) {
++  const j = state.journey.find((x) => x.id === id);
++  if (!j) return;
++  openSheet(
++    esc(formatDate(j.taken_on)),
++    `<img class="snap-preview" src="${esc(storage.publicUrl("journey", j.storage_path))}" alt="${esc(j.caption || "Foto journey")}">
++     ${j.caption ? `<p class="snap-caption journey-full">${esc(j.caption)}</p>` : ""}
++     <div class="sheet__actions"><button type="button" class="btn btn--soft" data-action="edit-journey" data-id="${esc(j.id)}">${icon("pen")} Ubah</button></div>`,
++  );
++}
++
++async function deleteJourney(id) {
++  const j = state.journey.find((x) => x.id === id);
++  if (!j || !confirm("Hapus foto ini dari journey?")) return;
++  // Hapus baris database dulu agar linimasa tidak pernah menampilkan foto rusak.
++  await api(`/rest/v1/journey_photos?id=${eq(id)}`, { method: "DELETE" });
++  await storage.remove("journey", j.storage_path).catch(() => {});
++  closeSheet();
++  await loadJourney();
++  render();
++  toast("Foto dihapus dari journey.");
++}
++
+ /* ---------- Hadiah ---------- */
+ 
+ const COUPON_IDEAS = [
+@@ -2062,6 +2263,7 @@ function openSheet(title, body) {
+ 
+ function closeSheet(restoreFocus = true) {
+   stopSnapCamera();
++  clearPendingJourney();
+   if (!sheetEl) return;
+   sheetEl.remove();
+   sheetEl = null;
+@@ -2815,6 +3017,7 @@ document.addEventListener("click", async (e) => {
+       }
+       case "add":
+         if (el.dataset.kind === "photos") openPhotoSheet();
++        else if (el.dataset.kind === "journey") openJourneySheet();
+         else openEntrySheet({ kind: el.dataset.kind });
+         break;
+       case "edit":
+@@ -2957,6 +3160,24 @@ document.addEventListener("click", async (e) => {
+       case "keep-snap":
+         await withBusy(el, "Menyimpan…", () => keepSnap(el.dataset.id));
+         break;
++      case "mem-view":
++        if (state.memView !== el.dataset.view) {
++          state.memView = el.dataset.view;
++          render();
++        }
++        break;
++      case "view-journey":
++        viewJourney(el.dataset.id);
++        break;
++      case "edit-journey":
++        openJourneySheet(el.dataset.id);
++        break;
++      case "delete-journey":
++        await withBusy(el, "Menghapus…", () => deleteJourney(el.dataset.id));
++        break;
++      case "journey-repick":
++        $("[data-journey-input]")?.click();
++        break;
+       case "viewer-step":
+         viewerStep(Number(el.dataset.step));
+         break;
+@@ -2983,6 +3204,7 @@ document.addEventListener("submit", async (e) => {
+     coupon: () => withBusy(button, "Mengirim…", () => saveCoupon(form)),
+     snap: () => withBusy(button, "Mengirim…", () => sendSnap(form)),
+     cycle: () => withBusy(button, "Menyimpan…", () => saveCycle(form)),
++    journey: () => withBusy(button, "Mengunggah…", () => saveJourney(form)),
+   };
+   try {
+     await handlers[kind]?.();
+@@ -2995,6 +3217,10 @@ document.addEventListener("change", (e) => {
+   if (e.target.matches("[data-photo-input]")) {
+     addPendingPhotos([...e.target.files]);
+     e.target.value = "";
++  } else if (e.target.matches("[data-journey-input]")) {
++    const file = e.target.files[0];
++    e.target.value = "";
++    pickJourneyFile(file).catch((err) => toast(err.message, true));
+   } else if (e.target.matches("[data-category-switch]")) {
+     switchEntryCategory(e.target);
+   }
+diff --git a/style.css b/style.css
+index 69e1ccb..5ed2340 100644
+--- a/style.css
++++ b/style.css
+@@ -1403,3 +1403,83 @@ h1, h2, h3 { font-weight: 400; margin: 0; }
+   .pet.is-happy::after { animation: pet-say-still 1.8s steps(1) forwards !important; translate: -50% 0; }
+   *, *::before, *::after { animation: none !important; transition: none !important; }
+ }
++
++/* ---------- Kenangan: pilihan Galeri / Journey ---------- */
++.segmented--tabs { margin: 22px 0 0; }
++.segmented--tabs button {
++  border: 0;
++  background: transparent;
++  padding: 10px;
++  border-radius: 11px;
++  font-size: 14px;
++  font-weight: 600;
++  color: var(--ink-2);
++}
++.segmented--tabs button[aria-selected="true"] { background: #fff; color: var(--kita); box-shadow: 0 2px 8px #8f347826; }
++
++/* ---------- Journey: linimasa foto + keterangan ---------- */
++.journey { position: relative; padding-left: 24px; }
++.journey::before {
++  content: "";
++  position: absolute;
++  left: 7px;
++  top: 10px;
++  bottom: 10px;
++  width: 2px;
++  border-radius: 2px;
++  background: linear-gradient(var(--aiya), var(--kita), var(--denan));
++  opacity: 0.35;
++}
++.journey__month { position: relative; font-family: var(--serif); font-size: 17px; color: var(--kita); margin: 26px 0 10px; }
++.journey__month:first-child { margin-top: 2px; }
++.journey__month::before {
++  content: "";
++  position: absolute;
++  left: -22px;
++  top: 50%;
++  width: 12px;
++  height: 12px;
++  margin-top: -6px;
++  border-radius: 50%;
++  background: var(--kita);
++  box-shadow: 0 0 0 4px var(--bg);
++}
++.journey__item + .journey__item { margin-top: 16px; }
++.journey__card {
++  display: block;
++  width: 100%;
++  padding: 0;
++  border: 0;
++  border-radius: var(--r-lg);
++  overflow: hidden;
++  background: var(--surface);
++  text-align: left;
++  box-shadow: 0 1px 2px #2b16221a, 0 10px 24px #2b162212;
++  transition: transform 0.2s ease;
++}
++.journey__card:active { transform: scale(0.99); }
++.journey__card img { display: block; width: 100%; max-height: 520px; object-fit: cover; background: #f6e6ef; }
++.journey__body { display: block; padding: 12px 16px 16px; }
++.journey__date { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
++.journey__caption {
++  display: -webkit-box;
++  -webkit-line-clamp: 4;
++  -webkit-box-orient: vertical;
++  overflow: hidden;
++  margin-top: 4px;
++  color: var(--ink);
++  white-space: pre-wrap;
++  overflow-wrap: anywhere;
++}
++.journey-pick { margin: 0; }
++.journey-pick figcaption {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++  margin: -6px 0 14px;
++  font-size: 13px;
++  color: var(--muted);
++}
++.journey-full { white-space: pre-wrap; overflow-wrap: anywhere; }
++@media (prefers-reduced-motion: reduce) { .journey__card { transition: none; } }
+diff --git a/sw.js b/sw.js
+index 142853d..04e5911 100644
+--- a/sw.js
++++ b/sw.js
+@@ -1,5 +1,5 @@
+ // Naikkan VERSION setiap kali isi app shell berubah.
+-const VERSION = "kita-berdua-v13";
++const VERSION = "kita-berdua-v14";
+ const APP_SHELL = [
+   "/",
+   "/style.css",
