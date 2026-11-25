@@ -17,7 +17,11 @@ supabase/
   03-member-hobbies.sql tabel hobi (privat) + migrasi data lama
 ```
 
-Nama pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`.
+Nama dan warna pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`. Warna dasar ada di bagian `:root` di `style.css` (`--aiya`, `--denan`, `--kita`).
+
+## Tampilan
+
+Konsep "dua warna yang bertemu": Aiya rose, Denan biru malam, dan titik temunya plum. Menu ada di bawah dengan 5 tab: Kalender (beranda, hitungan hari bersama dan acara berikutnya), Rencana, Kenangan, Hadiah, dan Kita. Semua form tambah/ubah muncul sebagai panel dari bawah; ketuk item untuk mengubah atau menghapusnya. Font: Plus Jakarta Sans dan Young Serif dari Google Fonts.
 
 ## Menjalankan SQL (sekali saja)
 
