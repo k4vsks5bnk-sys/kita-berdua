@@ -1,43 +1,48 @@
 # Kita Berdua — PWA
 
-Source frontend aplikasi Kita Berdua untuk dipindahkan dari ChatGPT Sites ke GitHub dan Vercel.
+Aplikasi kecil untuk Aiya & Denan: jadwal, wishlist, tanggal penting, ide kencan, hadiah, dan galeri kenangan. Frontend statis (tanpa build) yang terhubung ke Supabase.
 
-## Isi
+## Struktur
 
-- `index.html`: tampilan aplikasi, fitur, dan integrasi Supabase.
-- `manifest.webmanifest`: konfigurasi pemasangan ke Home Screen.
-- `icon.svg`: ikon aplikasi.
-- `sw.js`: service worker PWA.
-- `supabase-memory-setup.sql`: tabel galeri dan aturan akses Supabase.
+```
+index.html              kerangka halaman
+style.css               semua tampilan
+app.js                  logika aplikasi (Supabase, render, foto)
+sw.js                   service worker (offline sederhana)
+manifest.webmanifest    pengaturan "Add to Home Screen"
+icon.svg, *.png         ikon aplikasi (PNG untuk iOS/Android)
+supabase/
+  01-memory-photos.sql  tabel + bucket galeri kenangan (publik)
+  02-profile-photos.sql tabel + bucket foto profil
+  03-member-hobbies.sql tabel hobi (privat) + migrasi data lama
+```
 
-## Mengaktifkan Galeri Kenangan
+Nama pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`.
 
-1. Di proyek Supabase yang **sudah digunakan website**, buka **SQL Editor**.
-2. Tinjau dan jalankan `supabase-memory-setup.sql` satu kali. Skrip membuat tabel `memory_photos`, bucket publik `kenangan`, dan aturan RLS untuk anggota pasangan.
-3. Pastikan hanya dua akun Aiya dan Denan yang terdaftar di `couple_members` untuk pasangan ini. Akun tambahan yang diberi keanggotaan juga mendapat izin upload/hapus.
-4. Deploy `index.html` baru ke hosting aktif. Jangan mengganti URL/key Supabase.
-5. Uji pengunjung tanpa login (hanya bisa melihat foto), lalu login masing-masing akun dan coba upload/hapus foto percobaan.
+## Menjalankan SQL (sekali saja)
 
-Foto **bersifat publik**: siapa pun yang memiliki URL foto dapat melihatnya. Data di tab Jadwal, Wishlist, Hadiah, dan cerita lama di `entries` tetap mengikuti kebijakan privat yang sudah ada. Jangan jalankan SQL ini jika foto semestinya hanya dapat dilihat pasangan.
+Di Supabase → SQL Editor, jalankan berurutan: `01`, `02`, `03`. Semua skrip aman dijalankan ulang.
 
-## Cara memasang di Vercel
+- `01` sama dengan `supabase-memory-setup.sql` versi lama. Lewati jika sudah pernah dijalankan.
+- `02` membuat/merapikan tabel `profile_photos` dan bucket `profil`.
+- `03` memindahkan hobi dari tabel `entries` ke tabel `member_hobbies`. Aplikasi tetap jalan dengan cara lama selama `03` belum dijalankan.
 
-1. Buat repository **Private** baru di akun GitHub tujuan, misalnya `kita-berdua`.
-2. Unggah ke **root repository** seluruh file dalam ZIP ini (bukan ZIP-nya).
-3. Di Vercel pilih **Add New > Project > Import Git Repository**, lalu pilih repository tersebut.
-4. Pilih framework **Other**. Tidak diperlukan build command; output directory dapat dibiarkan kosong/default (root).
-5. Deploy dan buka URL `*.vercel.app` yang baru untuk pengujian.
-6. Uji login Aiya dan Denan serta membaca/menambah/mengedit item. Keduanya tetap memakai proyek Supabase yang sama.
-7. **Setelah tes berhasil**, barulah atur domain `kitaberdualovebb.my.id` di Vercel dan DNS Rumahweb. Lepaskan domain dari ChatGPT Sites jika disyaratkan untuk menghindari konflik.
+Tabel dasar (`couples`, `couple_members`, `entries`) belum ada di repo ini. Sebaiknya ekspor skemanya agar database bisa dibangun ulang, misalnya lewat Supabase CLI: `supabase db dump --schema public > supabase/00-base-schema.sql`.
 
-## Keamanan dan catatan
+## Deploy di Vercel
 
-- Jangan pernah mengunggah password akun, token login, atau `service_role` / secret key Supabase. Kunci `sb_publishable_...` yang sudah ada dalam frontend adalah kunci publik; pembatasan data harus ditegakkan oleh Supabase RLS.
-- Pengalihan website **tidak** mengalihkan owner Supabase. Undang Gmail baru ke organisasi Supabase secara terpisah dan pastikan aksesnya diuji sebelum mencabut akun lama.
-- Kepemilikan domain tetap di akun Rumahweb. Atur akses/pemilik akun domain secara terpisah, tanpa membagikan password.
-- Jangan menghapus Site lama, database, record DNS, atau akun login sebelum deployment dan login di domain baru terbukti normal.
-- Galeri foto publik memakai Supabase Storage dengan unggahan khusus akun anggota pasangan. Keamanan write bergantung pada policy Supabase, bukan pada tombol di frontend.
+1. Import repository ini di Vercel, framework **Other**, tanpa build command, output directory default (root).
+2. Uji di URL `*.vercel.app`: lihat galeri tanpa login, lalu login sebagai Aiya dan Denan, tambah/ubah/hapus item, ganti foto profil.
+3. Setelah normal, pasang domain `kitaberdualovebb.my.id`.
 
-## Sumber
+Setiap kali `style.css` atau `app.js` berubah, naikkan `VERSION` di `sw.js` agar HP mengambil versi baru.
 
-Paket ini dibuat dari arsip kode frontend Kita Berdua yang sudah ada di workspace. Arsip tidak menyertakan database, kredensial pengguna, atau konfigurasi hosting ChatGPT Sites lama.
+## Ganti foto profil
+
+Ketuk ikon kamera di foto (tab Tentang Kita) → pilih foto → geser dan zoom (bisa cubit dua jari) → Simpan. Foto dipotong bulat di HP, dikompres jadi JPEG 720×720, lalu diunggah, jadi selalu pas di lingkaran dan hemat kuota.
+
+## Keamanan
+
+- Jangan pernah menaruh password, token login, atau `service_role` key Supabase di repo. Kunci `sb_publishable_...` di `app.js` memang publik; pembatasan data ditegakkan oleh RLS.
+- Foto galeri dan foto profil **publik** (siapa pun yang punya URL bisa melihat). Jadwal, wishlist, hadiah, hobi, dan cerita tetap privat.
+- Repo ini sebaiknya **Private** (Settings → General → Danger Zone → Change visibility).

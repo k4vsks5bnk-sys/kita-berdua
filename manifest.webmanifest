@@ -1,1 +1,17 @@
-{"name":"Kita Berdua — Aiya & Denan","short_name":"Kita Berdua","description":"Ruang cerita Aiya dan Denan","start_url":"/","scope":"/","display":"standalone","background_color":"#fff3f6","theme_color":"#e74475","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+{
+  "name": "Kita Berdua — Aiya & Denan",
+  "short_name": "Kita Berdua",
+  "description": "Ruang cerita Aiya dan Denan",
+  "lang": "id",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fff3f6",
+  "theme_color": "#e74475",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
