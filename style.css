@@ -555,6 +555,74 @@ h1, h2, h3 { font-weight: 400; margin: 0; }
 .tabbar svg { width: 22px; height: 22px; }
 .tabbar button[aria-current="page"] { background: #f6e6ef; color: var(--kita); }
 
+/* ---------- Siklus haid ---------- */
+.cycle-card {
+  padding: 18px 18px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line), 0 10px 30px #b2577a0f;
+}
+.cycle-card__status strong { display: block; font-family: var(--serif); font-size: 28px; line-height: 1.15; color: var(--c); }
+.cycle-card__status p { margin: 4px 0 16px; color: var(--ink-2); font-size: 14px; }
+.cycle-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 99px;
+  background: #f6e6ef;
+  overflow: visible;
+}
+.cycle-bar__period, .cycle-bar__fertile { position: absolute; top: 0; bottom: 0; border-radius: 99px; }
+.cycle-bar__period { background: var(--aiya); }
+.cycle-bar__fertile { background: var(--butter); }
+.cycle-bar__today {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 4px;
+  background: var(--ink);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.cycle-bar__scale { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.cycle-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: var(--ink-2); }
+.cycle-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 99px;
+  vertical-align: -1px;
+}
+.cycle-legend .is-period::before { background: var(--aiya); }
+.cycle-legend .is-fertile::before { background: var(--butter); }
+.cycle-legend .is-today::before { width: 4px; border-radius: 2px; background: var(--ink); }
+.cycle-card__basis { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+.cycle-card .btn { margin-top: 12px; }
+
+.cycle-subhead { margin: 22px 0 10px; font-family: var(--serif); font-size: 18px; }
+.cycle-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line), 0 10px 30px #b2577a0f;
+}
+.cycle-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.cycle-table th {
+  padding: 12px 14px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+.cycle-table td { padding: 11px 14px; border-top: 1px solid var(--line); white-space: nowrap; }
+.cycle-table td:first-child { font-weight: 700; color: var(--aiya); }
+.cycle-table td:last-child { color: #7a5a06; }
+.cycle-table tbody tr:first-child td { background: #fff6f8; }
+.cycle-note { margin: 10px 2px 0; }
+
 /* ---------- Kucing & anjing ---------- */
 .pet__fill { fill: var(--surface); stroke: var(--c); stroke-width: 2; stroke-linejoin: round; }
 .pet__tint { fill: color-mix(in srgb, var(--c) 22%, #fff); stroke: var(--c); stroke-width: 2; stroke-linejoin: round; }

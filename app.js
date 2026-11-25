@@ -32,6 +32,7 @@ const ICONS = {
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M14 6v12" stroke-dasharray="2 2.5"/>',
   chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  drop: '<path d="M12 3.5s-6 6.4-6 10.8a6 6 0 0 0 12 0c0-4.4-6-10.8-6-10.8z"/>',
   left: '<path d="M15 5l-7 7 7 7"/>',
   right: '<path d="M9 5l7 7-7 7"/>',
 };
@@ -181,6 +182,11 @@ const MEMORY_MAX_FILES = 3;
 const AVATAR_SOURCE_MAX_BYTES = 25 * MB;
 const AVATAR_OUTPUT_PX = 720;
 const ZOOM_MAX = 4;
+// Siklus haid: siapa yang dicatat & nilai awal sebelum ada cukup catatan.
+const CYCLE_PERSON = "Aiya";
+const CYCLE_DEFAULT_DAYS = 28;
+const PERIOD_DEFAULT_DAYS = 5;
+const CYCLE_FORECAST_ROWS = 6;
 const MILESTONE_STEP = 100; // dirayakan setiap kelipatan 100 hari bersama
 const MONTHS_LONG = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
@@ -348,7 +354,7 @@ function clearCoupleData() {
   Object.assign(state, {
     couple: null, members: [], entries: [], hobbies: {},
     letters: [], lettersReady: false, answers: [], answersReady: false, coupons: [], couponsReady: false,
-    kangen: [], kangenReady: false,
+    kangen: [], kangenReady: false, cycles: [], cyclesReady: false,
   });
 }
 
@@ -586,6 +592,17 @@ async function cleanupOldSnaps() {
   }
 }
 
+async function loadCycles() {
+  try {
+    state.cycles =
+      (await api(`/rest/v1/cycle_periods?select=id,start_date,end_date&couple_id=${eq(state.couple.id)}&order=start_date.asc`)) || [];
+    state.cyclesReady = true;
+  } catch {
+    state.cycles = [];
+    state.cyclesReady = false;
+  }
+}
+
 async function loadCoupons() {
   try {
     state.coupons = (await api(`/rest/v1/love_coupons?select=*&couple_id=${eq(state.couple.id)}&order=created_at.desc`)) || [];
@@ -611,7 +628,7 @@ async function loadCouple() {
   state.couple = couples?.[0] || null;
   state.members = members || [];
   state.entries = entries || [];
-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen()]);
+  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen(), loadCycles()]);
   cleanupOldSnaps();
 }
 
@@ -1239,6 +1256,29 @@ function homeExtras() {
       <span><strong>Surat dari ${esc(l.author_name)} sudah bisa dibuka</strong><small>${esc(l.title)}</small></span></button>`);
   }
 
+  // Siklus haid: sedang haid, atau perkiraan mulai dalam 3 hari
+  const cycle = cycleStats();
+  if (cycle) {
+    const until = daysUntil(cycle.next);
+    let title = "";
+    let sub = "";
+    if (cycle.bleeding) {
+      title = `${CYCLE_PERSON} sedang haid, hari ke-${cycle.day}`;
+      sub = `Perkiraan selesai ${formatDate(cycle.lastEnd, false)}`;
+    } else if (until >= 0 && until <= 3) {
+      title = until === 0 ? `Haid ${CYCLE_PERSON} diperkirakan mulai hari ini` : `Haid ${CYCLE_PERSON} diperkirakan mulai ${until === 1 ? "besok" : `${until} hari lagi`}`;
+      sub = "Ketuk untuk mencatat kalau sudah mulai";
+    } else if (cycle.late > 0 && cycle.late <= 10) {
+      title = `Haid ${CYCLE_PERSON} lewat ${cycle.late} hari dari perkiraan`;
+      sub = "Ketuk untuk mencatat kalau sudah mulai";
+    }
+    if (title) {
+      parts.push(`<button type="button" class="banner" data-action="${cycle.bleeding ? "tab" : "cycle-add"}" data-tab="us" style="--c:var(--aiya)">
+      <span class="banner__icon">${icon("drop")}</span>
+      <span><strong>${esc(title)}</strong><small>${esc(sub)}</small></span></button>`);
+    }
+  }
+
   // Rekap tahunan (Desember sampai pertengahan Januari)
   const recapYear = recapYearInSeason();
   if (recapYear) {
@@ -1494,6 +1534,7 @@ function usView() {
       </div>
     </section>
     <div class="people">${people}</div>
+    ${cycleSection()}
     ${lettersSection()}
     <section class="section">
       <button type="button" class="banner banner--recap" data-action="open-recap" data-year="${recapYearInSeason() || Number(todayISO().slice(0, 4))}">
@@ -1502,6 +1543,189 @@ function usView() {
     </section>
     <div class="account"><span>Masuk sebagai ${esc(state.session?.user?.email)}</span>
       <button type="button" class="btn btn--sm btn--ghost" data-action="logout">Keluar</button></div>`;
+}
+
+/* ---------- Siklus haid ---------- */
+
+const avgOf = (xs) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+const dayDiff = (a, b) => isoToDay(b) - isoToDay(a);
+
+// Rata-rata dari catatan (maksimal 6 terakhir). Jarak di luar 15–45 hari dianggap
+// catatan yang terlewat, jadi tidak ikut dihitung.
+function cycleStats() {
+  const list = state.cycles || [];
+  if (!list.length) return null;
+  const gaps = [];
+  for (let i = 1; i < list.length; i++) {
+    const g = dayDiff(list[i - 1].start_date, list[i].start_date);
+    if (g >= 15 && g <= 45) gaps.push(g);
+  }
+  const lengths = list
+    .filter((p) => p.end_date)
+    .map((p) => dayDiff(p.start_date, p.end_date) + 1)
+    .filter((d) => d >= 1 && d <= 12);
+  const cycleLen = gaps.length ? avgOf(gaps.slice(-6)) : CYCLE_DEFAULT_DAYS;
+  const periodLen = lengths.length ? avgOf(lengths.slice(-6)) : PERIOD_DEFAULT_DAYS;
+
+  const today = todayISO();
+  const last = list[list.length - 1];
+  const day = dayDiff(last.start_date, today) + 1;
+  const lastEnd = last.end_date || addDaysISO(last.start_date, periodLen - 1);
+  const bleeding = day >= 1 && today <= lastEnd;
+  const next = addDaysISO(last.start_date, cycleLen);
+  const late = Math.max(0, -daysUntil(next));
+  // Masa subur kira-kira 5 hari sebelum sampai 1 hari setelah ovulasi (±14 hari sebelum haid berikutnya).
+  const fertileOf = (start) => ({ from: addDaysISO(start, -19), to: addDaysISO(start, -13) });
+  const fertile = fertileOf(next);
+
+  let first = next;
+  while (daysUntil(first) < -10) first = addDaysISO(first, cycleLen);
+  const forecast = Array.from({ length: CYCLE_FORECAST_ROWS }, (_, i) => {
+    const start = addDaysISO(first, i * cycleLen);
+    return { start, end: addDaysISO(start, periodLen - 1), fertile: fertileOf(start) };
+  });
+
+  return { cycleLen, periodLen, samples: gaps.length, last, lastEnd, day, bleeding, next, late, fertile, forecast, ongoingNoEnd: bleeding && !last.end_date };
+}
+
+const shortRange = (a, b) => {
+  const [, ma, da] = a.split("-").map(Number);
+  const [, mb, db] = b.split("-").map(Number);
+  return ma === mb ? `${da}–${db} ${MONTHS[ma - 1]}` : `${da} ${MONTHS[ma - 1]} – ${db} ${MONTHS[mb - 1]}`;
+};
+const dayMonth = (iso) => {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}`;
+};
+
+function cycleSection() {
+  const head = (extra = "") => `<div class="section-head"><div><h2>Siklus ${esc(CYCLE_PERSON)}</h2><p class="hint">Perkiraan dari catatan haid, hanya terlihat oleh kalian berdua</p></div>${extra}</div>`;
+  if (!state.cyclesReady) {
+    return `<section class="section">${head()}<div class="notice">Fitur siklus perlu SQL <code>11-siklus-haid.sql</code> dijalankan dulu di Supabase.</div></section>`;
+  }
+  const add = `<button type="button" class="add-btn" data-action="cycle-add">${icon("plus")}Catat haid</button>`;
+  const c = cycleStats();
+  if (!c) {
+    return `<section class="section">${head()}
+      <div class="empty">${petPair()}<p>Catat hari pertama haid terakhir ${esc(CYCLE_PERSON)} untuk mulai melihat perkiraan.</p>
+      <button type="button" class="add-btn" data-action="cycle-add">${icon("plus")}Catat haid</button></div></section>`;
+  }
+
+  const until = daysUntil(c.next);
+  let status;
+  if (c.bleeding) status = { big: `Haid hari ke-${c.day}`, sub: `Perkiraan selesai ${formatDate(c.lastEnd, false)}` };
+  else if (c.late > 0) status = { big: `Lewat ${c.late} hari`, sub: `Perkiraan mulai ${formatDate(c.next, false)}. Catat kalau sudah mulai.` };
+  else if (todayISO() >= c.fertile.from && todayISO() <= c.fertile.to) status = { big: `Hari ke-${c.day}`, sub: `Masa subur (perkiraan). Haid berikutnya ${whenLabel(until).toLowerCase()}, ${formatDate(c.next, false)}` };
+  else status = { big: `Hari ke-${c.day}`, sub: `Haid berikutnya ${whenLabel(until).toLowerCase()}, ${formatDate(c.next, false)}` };
+
+  // Pita satu siklus: haid, masa subur, dan posisi hari ini.
+  const pct = (d) => `${((d / c.cycleLen) * 100).toFixed(2)}%`;
+  const ovDay = c.cycleLen - 14; // hari ovulasi (perkiraan), dihitung dari hari 1
+  const fertileFrom = Math.max(c.periodLen, ovDay - 5);
+  const marker = c.day >= 1 && c.day <= c.cycleLen ? `<span class="cycle-bar__today" style="left:${pct(c.day - 0.5)}" title="Hari ini"></span>` : "";
+  const bar = `<div class="cycle-bar" role="img" aria-label="Siklus ${c.cycleLen} hari: haid hari 1 sampai ${c.periodLen}, masa subur sekitar hari ${fertileFrom + 1} sampai ${ovDay + 2}">
+      <span class="cycle-bar__period" style="left:0;width:${pct(c.periodLen)}"></span>
+      <span class="cycle-bar__fertile" style="left:${pct(fertileFrom)};width:${pct(ovDay + 2 - fertileFrom)}"></span>${marker}</div>
+    <div class="cycle-bar__scale"><span>Hari 1</span><span>Hari ${c.cycleLen}</span></div>
+    <div class="cycle-legend"><span class="is-period">Haid</span><span class="is-fertile">Masa subur</span>${marker ? '<span class="is-today">Hari ini</span>' : ""}</div>`;
+
+  const rows = c.forecast
+    .map(
+      (f) => `<tr><td>${dayMonth(f.start)}${daysUntil(f.start) < 0 ? ' <span class="chip">lewat</span>' : ""}</td><td>${dayMonth(f.end)}</td><td>${shortRange(f.fertile.from, f.fertile.to)}</td></tr>`,
+    )
+    .join("");
+  const history = [...state.cycles]
+    .reverse()
+    .map((p, i, arr) => {
+      const prev = arr[i + 1];
+      const gap = prev ? dayDiff(prev.start_date, p.start_date) : null;
+      const len = p.end_date ? `${dayDiff(p.start_date, p.end_date) + 1} hari` : "selesai belum dicatat";
+      return `<button type="button" class="row" data-action="cycle-edit" data-id="${esc(p.id)}">
+        <span class="row__body"><span class="row__title">${esc(formatDate(p.start_date))}</span><span class="row__meta">Haid ${len}${gap ? `, siklus ${gap} hari` : ""}</span></span></button>`;
+    })
+    .join("");
+
+  return `<section class="section">${head(add)}
+    <div class="cycle-card" style="--c:var(--aiya)">
+      <div class="cycle-card__status"><strong>${esc(status.big)}</strong><p>${esc(status.sub)}</p></div>
+      ${bar}
+      <p class="cycle-card__basis">Rata-rata siklus ${c.cycleLen} hari, haid ${c.periodLen} hari${c.samples ? ` (dari ${c.samples} siklus tercatat)` : `. Siklus dianggap ${CYCLE_DEFAULT_DAYS} hari sampai ada 2 catatan`}.</p>
+      ${c.ongoingNoEnd ? `<button type="button" class="btn btn--sm btn--soft" data-action="cycle-end-today" data-id="${esc(c.last.id)}">Haid selesai hari ini</button>` : ""}
+    </div>
+    <h3 class="cycle-subhead">Perkiraan ${CYCLE_FORECAST_ROWS} bulan ke depan</h3>
+    <div class="cycle-table-wrap"><table class="cycle-table">
+      <thead><tr><th scope="col">Mulai haid</th><th scope="col">Selesai</th><th scope="col">Masa subur</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <p class="help cycle-note">Ini perkiraan dari rata-rata, bukan diagnosis, dan tidak bisa dipakai sebagai alat kontrasepsi. Siklus bisa maju-mundur karena stres, sakit, atau kurang tidur.</p>
+    <details class="past"><summary>Riwayat catatan (${state.cycles.length})</summary><div class="list">${history}</div></details>
+  </section>`;
+}
+
+function openCycleSheet(id) {
+  const editing = id ? state.cycles.find((p) => p.id === id) : null;
+  const today = todayISO();
+  openSheet(
+    editing ? "Ubah catatan haid" : `Catat haid ${esc(CYCLE_PERSON)}`,
+    `<form data-form="cycle" ${editing ? `data-editing="${esc(editing.id)}"` : ""}>
+      ${field("c-start", "Hari pertama haid", `<input id="c-start" name="start_date" type="date" max="${today}" required value="${esc(editing?.start_date || today)}">`)}
+      <div class="quick-dates">
+        <button type="button" class="tag-btn" data-action="cycle-date" data-date="${today}">Hari ini</button>
+        <button type="button" class="tag-btn" data-action="cycle-date" data-date="${addDaysISO(today, -1)}">Kemarin</button>
+        <button type="button" class="tag-btn" data-action="cycle-date" data-date="${addDaysISO(today, -2)}">2 hari lalu</button>
+      </div>
+      ${field("c-end", "Hari terakhir (boleh dikosongkan dulu)", `<input id="c-end" name="end_date" type="date" max="${today}" value="${esc(editing?.end_date || "")}">`)}
+      <p class="help">Makin banyak catatan, makin pas perkiraannya. Isi hari terakhir setelah haid selesai.</p>
+      <div class="sheet__actions">
+        ${editing ? `<button type="button" class="btn btn--danger" data-action="cycle-delete" data-id="${esc(editing.id)}">Hapus</button>` : ""}
+        <button type="submit" class="btn">${editing ? "Simpan perubahan" : "Simpan"}</button>
+      </div>
+    </form>`,
+  );
+}
+
+function cycleError(err) {
+  if (/cycle_periods_one_per_day|duplicate key/i.test(err.message)) return new Error("Tanggal mulai itu sudah pernah dicatat.");
+  if (/cycle_periods/i.test(err.message)) return new Error("Fitur siklus perlu SQL 11-siklus-haid.sql dijalankan dulu di Supabase.");
+  return err;
+}
+
+async function saveCycle(form) {
+  if (!form.reportValidity()) return;
+  const start = formValue(form, "start_date");
+  const end = formValue(form, "end_date");
+  if (end && end < start) throw new Error("Hari terakhir tidak boleh sebelum hari pertama.");
+  const body = JSON.stringify({ start_date: start, end_date: end });
+  try {
+    if (form.dataset.editing) await api(`/rest/v1/cycle_periods?id=${eq(form.dataset.editing)}`, { method: "PATCH", body });
+    else
+      await api("/rest/v1/cycle_periods", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ couple_id: state.couple.id, start_date: start, end_date: end }),
+      });
+  } catch (err) {
+    throw cycleError(err);
+  }
+  closeSheet();
+  await loadCycles();
+  render();
+  toast("Catatan haid disimpan.");
+}
+
+async function endCycleToday(id) {
+  await api(`/rest/v1/cycle_periods?id=${eq(id)}`, { method: "PATCH", body: JSON.stringify({ end_date: todayISO() }) });
+  await loadCycles();
+  render();
+  toast("Dicatat: haid selesai hari ini.");
+}
+
+async function deleteCycle(id) {
+  if (!confirm("Hapus catatan haid ini?")) return;
+  await api(`/rest/v1/cycle_periods?id=${eq(id)}`, { method: "DELETE" });
+  closeSheet();
+  await loadCycles();
+  render();
+  toast("Catatan dihapus.");
 }
 
 /* ---------- Surat untuk nanti ---------- */
@@ -2660,6 +2884,23 @@ document.addEventListener("click", async (e) => {
         if (input) input.value = el.dataset.date;
         break;
       }
+      case "cycle-add":
+        openCycleSheet();
+        break;
+      case "cycle-edit":
+        openCycleSheet(el.dataset.id);
+        break;
+      case "cycle-date": {
+        const input = $("#c-start");
+        if (input) input.value = el.dataset.date;
+        break;
+      }
+      case "cycle-end-today":
+        await withBusy(el, "Menyimpan…", () => endCycleToday(el.dataset.id));
+        break;
+      case "cycle-delete":
+        await withBusy(el, "Menghapus…", () => deleteCycle(el.dataset.id));
+        break;
       case "read-letter":
         openLetter(el.dataset.id);
         break;
@@ -2741,6 +2982,7 @@ document.addEventListener("submit", async (e) => {
     answer: () => withBusy(button, "Mengirim…", () => saveAnswer(form)),
     coupon: () => withBusy(button, "Mengirim…", () => saveCoupon(form)),
     snap: () => withBusy(button, "Mengirim…", () => sendSnap(form)),
+    cycle: () => withBusy(button, "Menyimpan…", () => saveCycle(form)),
   };
   try {
     await handlers[kind]?.();
