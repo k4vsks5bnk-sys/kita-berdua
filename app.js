@@ -169,6 +169,8 @@ const state = {
   couponsReady: false, // SQL 07
   snaps: [],
   snapsReady: false, // SQL 09
+  kangen: [], // kangen hari ini (dua arah)
+  kangenReady: false, // SQL 10
   snapUrls: {}, // storage_path -> signed URL
   pendingSnap: null, // { blob, url }
   albumsSupported: true, // false jika kolom album_id belum ada (SQL 08)
@@ -303,6 +305,7 @@ function clearCoupleData() {
   Object.assign(state, {
     couple: null, members: [], entries: [], hobbies: {},
     letters: [], lettersReady: false, answers: [], answersReady: false, coupons: [], couponsReady: false,
+    kangen: [], kangenReady: false,
   });
 }
 
@@ -553,7 +556,7 @@ async function loadCouple() {
   state.couple = couples?.[0] || null;
   state.members = members || [];
   state.entries = entries || [];
-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps()]);
+  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons(), loadSnaps(), loadKangen()]);
   cleanupOldSnaps();
 }
 
@@ -763,6 +766,7 @@ function calendarView() {
     .join("");
 
   return `${heroView()}
+    ${kangenCard()}
     ${snapCard()}
     ${dailyCard()}
     ${homeExtras()}
@@ -799,6 +803,70 @@ function snapTile(snap, name) {
       : `<div class="snap__frame"><span>Foto tidak bisa dimuat</span></div>`;
   return `<figure class="snap" style="--c:${color}">${frame}
     <figcaption><strong>${esc(name)}</strong> · ${esc(time)}${snap.caption ? `<span>${esc(snap.caption)}</span>` : ""}</figcaption></figure>`;
+}
+
+/* ---------- Tombol kangen ---------- */
+
+async function loadKangen() {
+  try {
+    const since = encodeURIComponent(`${wibToday()}T00:00:00+07:00`);
+    state.kangen =
+      (await api(`/rest/v1/kangen?select=from_id,created_at&couple_id=${eq(state.couple.id)}&created_at=gte.${since}&order=created_at.desc`)) || [];
+    state.kangenReady = true;
+  } catch {
+    state.kangen = [];
+    state.kangenReady = false;
+  }
+}
+
+const jamWIB = (iso) => new Date(iso).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" });
+
+function kangenCard() {
+  if (!state.kangenReady) return "";
+  const partner = esc(partnerName());
+  const theirs = state.kangen.filter((k) => k.from_id !== myUserId());
+  const mine = state.kangen.filter((k) => k.from_id === myUserId());
+  const status = theirs.length
+    ? `<strong>${partner} kangen kamu ${theirs.length}×</strong> hari ini, terakhir ${jamWIB(theirs[0].created_at)} ♡`
+    : `Lagi kangen ${partner}? Bilang aja.`;
+  return `<section class="daily kangen-card">
+    <p class="daily__status">${status}</p>
+    <button type="button" class="kangen-btn" data-action="send-kangen">♥ Kangen</button>
+    ${mine.length ? `<p class="help kangen-card__mine">Kamu sudah kangen ${mine.length}× hari ini</p>` : ""}
+  </section>`;
+}
+
+function burstHearts(from) {
+  if (prefersReducedMotion()) return;
+  const r = from.getBoundingClientRect();
+  for (let i = 0; i < 8; i++) {
+    const h = document.createElement("span");
+    h.className = "kangen-heart";
+    h.textContent = "♥";
+    h.style.left = `${r.left + r.width / 2}px`;
+    h.style.top = `${r.top + r.height / 2}px`;
+    h.style.setProperty("--dx", `${Math.round((Math.random() - 0.5) * 180)}px`);
+    h.style.animationDelay = `${i * 45}ms`;
+    h.addEventListener("animationend", () => h.remove());
+    document.body.append(h);
+  }
+}
+
+let lastKangenAt = 0;
+async function sendKangen(btn) {
+  burstHearts(btn);
+  navigator.vibrate?.(30);
+  // Tap beruntun cukup animasi saja, biar database tidak penuh
+  if (Date.now() - lastKangenAt < 5000) return;
+  lastKangenAt = Date.now();
+  await api("/rest/v1/kangen", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ couple_id: state.couple.id }),
+  });
+  state.kangen.unshift({ from_id: myUserId(), created_at: new Date().toISOString() });
+  render();
+  toast(`Kangen terkirim ke ${partnerName()} ♡`);
 }
 
 function snapCard() {
@@ -2549,6 +2617,9 @@ document.addEventListener("click", async (e) => {
         break;
       case "delete-coupon":
         await deleteCoupon(el.dataset.id);
+        break;
+      case "send-kangen":
+        await sendKangen(el);
         break;
       case "take-snap":
         takeSnap();

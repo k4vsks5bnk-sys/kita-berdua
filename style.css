@@ -1087,6 +1087,27 @@ h1, h2, h3 { font-weight: 400; margin: 0; }
 .answer__hidden svg { width: 15px; height: 15px; }
 .answer--waiting { background: #f7f1f4; }
 
+/* ---------- Tombol kangen ---------- */
+.kangen-card { text-align: center; }
+.kangen-card .daily__status { margin: 0 0 14px; }
+.kangen-card__mine { margin: 10px 0 0; }
+.kangen-btn {
+  border: 0; border-radius: 999px; padding: 14px 34px;
+  background: var(--kita); color: #fff; font: inherit; font-size: 18px; font-weight: 700;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--kita) 35%, transparent);
+  cursor: pointer; transition: transform 0.12s ease;
+}
+.kangen-btn:active { transform: scale(0.93); }
+.kangen-heart {
+  position: fixed; z-index: 1000; pointer-events: none; opacity: 0;
+  color: var(--kita); font-size: 24px; transform: translate(-50%, -50%);
+  animation: kangen-fly 1.1s ease-out forwards;
+}
+@keyframes kangen-fly {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.6); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% - 150px)) scale(1.3); }
+}
+
 /* ---------- PAP harian ---------- */
 .snaps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 16px; }
 .snap { margin: 0; min-width: 0; }
