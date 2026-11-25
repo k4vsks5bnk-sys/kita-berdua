@@ -15,6 +15,8 @@ supabase/
   01-memory-photos.sql  tabel + bucket galeri kenangan (publik)
   02-profile-photos.sql tabel + bucket foto profil
   03-member-hobbies.sql tabel hobi (privat) + migrasi data lama
+  04-wishlist-done.sql  kolom untuk mencentang wishlist yang sudah dilakukan
+  05-letters.sql        surat untuk dibuka nanti (dikunci oleh database)
 ```
 
 Nama dan warna pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`. Warna dasar ada di bagian `:root` di `style.css` (`--aiya`, `--denan`, `--kita`).
@@ -25,7 +27,7 @@ Konsep "dua warna yang bertemu": Aiya rose, Denan biru malam, dan titik temunya 
 
 ## Menjalankan SQL (sekali saja)
 
-Di Supabase → SQL Editor, jalankan berurutan: `01`, `02`, `03`. Semua skrip aman dijalankan ulang.
+Di Supabase → SQL Editor, jalankan berurutan: `01` sampai `05`. Semua skrip aman dijalankan ulang, jadi yang sudah pernah dijalankan boleh dilewati.
 
 - `01` sama dengan `supabase-memory-setup.sql` versi lama. Lewati jika sudah pernah dijalankan.
 - `02` membuat/merapikan tabel `profile_photos` dan bucket `profil`.
@@ -40,6 +42,15 @@ Tabel dasar (`couples`, `couple_members`, `entries`) belum ada di repo ini. Seba
 3. Setelah normal, pasang domain `kitaberdualovebb.my.id`.
 
 Setiap kali `style.css` atau `app.js` berubah, naikkan `VERSION` di `sw.js` agar HP mengambil versi baru.
+
+## Fitur
+
+- **Hari ini, dulu**: foto dan cerita dari tanggal yang sama di tahun-tahun sebelumnya muncul di beranda.
+- **Perayaan**: setiap kelipatan 100 hari bersama dan di hari anniversary, beranda menampilkan ucapan dan animasi hati.
+- **Kalender HP**: buka rencana atau tanggal penting, lalu pilih "Kalender HP" (file .ics) atau "Google Calendar". Tanggal penting otomatis berulang tiap tahun.
+- **Wishlist → kenangan**: centang wishlist yang sudah dilakukan, lalu langsung upload foto atau tulis ceritanya.
+- **Surat untuk nanti** (tab Kita): isi surat dikunci database sampai tanggal bukanya (WIB). Pasangan hanya melihat amplopnya.
+- **Rekap tahunan**: muncul di beranda mulai 1 Desember sampai 15 Januari, dan bisa dibuka kapan saja dari tab Kita.
 
 ## Ganti foto profil
 

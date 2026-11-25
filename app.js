@@ -25,6 +25,11 @@ const ICONS = {
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   pin: '<path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5L12 13l8.5-6.5"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  pen: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
 };
 const icon = (name, fill = false) =>
   `<svg viewBox="0 0 24 24" fill="${fill ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${fill ? 0 : 1.9}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -68,6 +73,8 @@ const MEMORY_MAX_FILES = 3;
 const AVATAR_SOURCE_MAX_BYTES = 25 * MB;
 const AVATAR_OUTPUT_PX = 720;
 const ZOOM_MAX = 4;
+const MILESTONE_STEP = 100; // dirayakan setiap kelipatan 100 hari bersama
+const MONTHS_LONG = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 /* ==========================================================
    State
@@ -89,6 +96,9 @@ const state = {
   ideaIndex: Math.floor(Math.random() * DATE_IDEAS.length),
   introPlayed: false,
   pendingPhotos: [], // [{ file, url }]
+  letters: [],
+  lettersReady: false, // false = tabel surat belum dibuat (SQL 05)
+  celebrated: false,
 };
 
 /* ==========================================================
@@ -178,6 +188,12 @@ function whenLabel(days) {
   return `${days} hari lagi`;
 }
 
+function addDaysISO(iso, n) {
+  const d = new Date((isoToDay(iso) + n) * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+const sameMonthDay = (iso, ref) => iso && iso.slice(5, 10) === ref.slice(5, 10);
+
 function daysTogether() {
   const start = state.couple?.anniversary_date;
   return start ? Math.max(0, -daysUntil(start)) : 0;
@@ -202,7 +218,7 @@ function readStoredSession() {
 }
 
 function clearCoupleData() {
-  Object.assign(state, { couple: null, members: [], entries: [], hobbies: {} });
+  Object.assign(state, { couple: null, members: [], entries: [], hobbies: {}, letters: [], lettersReady: false });
 }
 
 let refreshPromise = null;
@@ -324,6 +340,16 @@ async function loadHobbies() {
   }
 }
 
+async function loadLetters() {
+  try {
+    state.letters = (await api("/rest/v1/rpc/list_letters", { method: "POST", body: "{}" })) || [];
+    state.lettersReady = true;
+  } catch {
+    state.letters = [];
+    state.lettersReady = false;
+  }
+}
+
 async function loadCouple() {
   const memberships = await api(`/rest/v1/couple_members?select=couple_id&user_id=${eq(state.session.user.id)}`);
   if (!memberships?.length) {
@@ -339,7 +365,7 @@ async function loadCouple() {
   state.couple = couples?.[0] || null;
   state.members = members || [];
   state.entries = entries || [];
-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies()]);
+  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters()]);
 }
 
 async function reload() {
@@ -411,6 +437,60 @@ function markIcon(name) {
 
 const entriesOf = (cat) => state.entries.filter((e) => e.category === cat);
 
+/* ---------- Siapa aku, siapa pasangan ---------- */
+
+const personByName = (name) => PEOPLE.find((p) => p.name.toLowerCase() === String(name || "").trim().toLowerCase());
+const myUserId = () => state.session?.user?.id;
+function myName() {
+  const displayName = state.members.find((m) => m.user_id === myUserId())?.display_name;
+  return personByName(displayName)?.name || displayName || PEOPLE[0].name;
+}
+const partnerName = () => PEOPLE.find((p) => p.name !== myName())?.name || "pasanganmu";
+const colorOf = (name) => personByName(name)?.color || "var(--kita)";
+
+/* ---------- Hari spesial ---------- */
+
+function nextMilestone() {
+  if (!state.couple?.anniversary_date) return null;
+  const days = daysTogether();
+  const target = (Math.floor(days / MILESTONE_STEP) + 1) * MILESTONE_STEP;
+  return { target, days: target - days };
+}
+
+function todayCelebration() {
+  const start = state.couple?.anniversary_date;
+  if (!start) return null;
+  const yearly = nextYearly(start);
+  if (yearly.days === 0 && yearly.years > 0) {
+    return { emoji: "💞", title: `Selamat anniversary ke-${yearly.years}!`, sub: `${yearly.years} tahun lalu, cerita ini dimulai.` };
+  }
+  const days = daysTogether();
+  if (days > 0 && days % MILESTONE_STEP === 0) {
+    return { emoji: "🎉", title: `Hari ke-${days.toLocaleString("id-ID")} bersama!`, sub: "Terima kasih sudah memilih satu sama lain setiap hari." };
+  }
+  return null;
+}
+
+function onThisDay() {
+  const today = todayISO();
+  const thisYear = today.slice(0, 4);
+  const earlier = (iso) => sameMonthDay(iso, today) && iso.slice(0, 4) < thisYear;
+  return {
+    photos: state.photos.filter((p) => earlier(p.taken_on)),
+    stories: state.entries.filter((e) => (e.category === "memory" || e.category === "schedule") && earlier(e.event_date)),
+  };
+}
+const yearsAgo = (iso) => `${Number(todayISO().slice(0, 4)) - Number(iso.slice(0, 4))} tahun lalu`;
+
+function recapYearInSeason() {
+  const today = todayISO();
+  const month = Number(today.slice(5, 7));
+  const day = Number(today.slice(8, 10));
+  if (month === 12) return Number(today.slice(0, 4));
+  if (month === 1 && day <= 15) return Number(today.slice(0, 4)) - 1;
+  return null;
+}
+
 /* ---------- Beranda: Kalender ---------- */
 
 function upcomingItems() {
@@ -425,6 +505,13 @@ function upcomingItems() {
   if (state.couple?.anniversary_date) {
     const next = nextYearly(state.couple.anniversary_date);
     if (next.years > 0) items.push({ icon: "💞", title: `Anniversary ke-${next.years}`, days: next.days });
+    const milestone = nextMilestone();
+    items.push({ icon: "✨", title: `${milestone.target.toLocaleString("id-ID")} hari bersama`, days: milestone.days });
+  }
+  for (const letter of state.letters) {
+    if (!letter.is_locked) continue;
+    const mine = letter.author_id === myUserId();
+    items.push({ icon: "💌", title: mine ? `Suratmu untuk ${partnerName()} terbuka` : `Surat dari ${letter.author_name} terbuka`, days: daysUntil(letter.unlock_on) });
   }
   return items.sort((a, b) => a.days - b.days);
 }
@@ -432,7 +519,12 @@ function upcomingItems() {
 function heroView() {
   const next = upcomingItems()[0];
   const anniversary = state.couple?.anniversary_date;
-  return `<section class="hero">
+  const party = todayCelebration();
+  const burst = party && !state.celebrated && !prefersReducedMotion();
+  if (party) state.celebrated = true;
+  return `<section class="hero ${party ? "hero--party" : ""}">
+    ${burst ? `<div class="hearts" aria-hidden="true">${Array.from({ length: 14 }, (_, i) => `<span style="--i:${i}">♥</span>`).join("")}</div>` : ""}
+    ${party ? `<p class="party"><span aria-hidden="true">${party.emoji}</span> ${esc(party.title)}<small>${esc(party.sub)}</small></p>` : ""}
     ${venn("lg")}
     <h1 class="hero__names">${esc(coupleNames())}</h1>
     ${
@@ -482,6 +574,7 @@ function calendarView() {
     .join("");
 
   return `${heroView()}
+    ${homeExtras()}
     <section class="section">
       <div class="section-head"><h2>Akan datang</h2>${addButton("calendar")}</div>
       ${upcomingRows ? `<div class="list">${upcomingRows}</div>` : emptyState("Belum ada rencana. Kencan berikutnya kapan, nih?", "calendar", "Tambah rencana")}
@@ -498,14 +591,57 @@ function calendarView() {
     </section>`;
 }
 
+function homeExtras() {
+  const parts = [];
+  const today = todayISO();
+
+  // Surat yang baru saja terbuka untukku
+  const fresh = state.letters.filter((l) => !l.is_locked && l.author_id !== myUserId() && l.unlock_on >= addDaysISO(today, -3));
+  for (const l of fresh) {
+    parts.push(`<button type="button" class="banner banner--letter" data-action="read-letter" data-id="${esc(l.id)}" style="--c:${colorOf(l.author_name)}">
+      <span class="banner__icon">${icon("mail")}</span>
+      <span><strong>Surat dari ${esc(l.author_name)} sudah bisa dibuka</strong><small>${esc(l.title)}</small></span></button>`);
+  }
+
+  // Rekap tahunan (Desember sampai pertengahan Januari)
+  const recapYear = recapYearInSeason();
+  if (recapYear) {
+    parts.push(`<button type="button" class="banner banner--recap" data-action="open-recap" data-year="${recapYear}">
+      <span class="banner__icon">${icon("chart")}</span>
+      <span><strong>Rekap ${recapYear} kita sudah siap</strong><small>Lihat setahun kita dalam angka</small></span></button>`);
+  }
+
+  // Hari ini, di tahun-tahun sebelumnya
+  const past = onThisDay();
+  if (past.photos.length || past.stories.length) {
+    parts.push(`<section class="section">
+      <div class="section-head"><div><h2>Hari ini, dulu</h2><p class="hint">${esc(formatDate(today, false))} di tahun-tahun sebelumnya</p></div></div>
+      ${past.photos.length ? `<div class="polaroids polaroids--small">${past.photos.map((p) => polaroidCard(p, yearsAgo(p.taken_on))).join("")}</div>` : ""}
+      ${past.stories.length ? `<div class="list" style="margin-top:12px">${past.stories.map((x) => entryRow(x, { lead: markIcon("heart"), chip: yearsAgo(x.event_date), meta: esc(formatDate(x.event_date)) })).join("")}</div>` : ""}
+    </section>`);
+  }
+  return parts.length ? `<div class="home-extras">${parts.join("")}</div>` : "";
+}
+
 /* ---------- Rencana ---------- */
 
 function pageHead(title, sub) {
   return `<header class="page-head"><div><h1>${title}</h1><p>${sub}</p></div>${venn("sm")}</header>`;
 }
 
+function wishRow(x) {
+  const done = !!x.done_at;
+  const meta = [done ? `Terwujud ${formatDate(x.done_at)}` : "", x.location].filter(Boolean).map(esc).join(" · ");
+  return `<div class="row-wrap ${done ? "is-done" : ""}">
+    <button type="button" class="check" data-action="toggle-done" data-id="${esc(x.id)}" aria-pressed="${done}" aria-label="${done ? "Tandai belum" : "Tandai sudah dilakukan"}: ${esc(x.title)}">${icon("check")}</button>
+    ${entryRow(x, { lead: "", meta })}
+  </div>`;
+}
+
 function plansView() {
-  const rows = entriesOf("wishlist").map((x) => entryRow(x, { lead: markIcon("pin") })).join("");
+  const wishes = entriesOf("wishlist");
+  const rows = wishes.filter((x) => !x.done_at).map(wishRow).join("");
+  const doneList = wishes.filter((x) => x.done_at).sort((a, b) => b.done_at.localeCompare(a.done_at));
   return `${pageHead("Rencana", "Tempat dan hal yang mau kita coba berdua")}
     <section class="idea" aria-live="polite">
       <small>Bingung mau ke mana?</small>
@@ -517,7 +653,13 @@ function plansView() {
     </section>
     <section class="section">
       <div class="section-head"><h2>Wishlist</h2>${addButton("wishlist")}</div>
-      ${rows ? `<div class="list">${rows}</div>` : emptyState("Wishlist masih kosong. Tulis satu tempat impian kalian.", "wishlist", "Tambah wishlist")}
+      ${rows ? `<div class="list">${rows}</div>` : emptyState(doneList.length ? "Semua wishlist sudah terwujud. Tulis impian berikutnya!" : "Wishlist masih kosong. Tulis satu tempat impian kalian.", "wishlist", "Tambah wishlist")}
+      ${rows ? '<p class="hint" style="margin:10px 2px 0">Ketuk lingkaran kalau sudah kalian lakukan.</p>' : ""}
+      ${
+        doneList.length
+          ? `<details class="past"><summary>Sudah terwujud (${doneList.length})</summary><div class="list">${doneList.map(wishRow).join("")}</div></details>`
+          : ""
+      }
     </section>`;
 }
 
@@ -529,15 +671,16 @@ const canManagePhoto = (photo) =>
 function polaroids() {
   if (state.photoError) return `<div class="notice">${esc(state.photoError)}</div>`;
   if (!state.photos.length) return "";
-  return `<div class="polaroids">${state.photos
-    .map(
-      (p) => `<button type="button" class="polaroid" data-action="view-photo" data-id="${esc(p.id)}" aria-label="Lihat foto ${esc(p.title)}">
-        <img src="${esc(storage.publicUrl("kenangan", p.storage_path))}" alt="" loading="lazy" decoding="async">
-        <span class="polaroid__caption"><span class="polaroid__title">${esc(p.title)}</span>
-        ${p.taken_on ? `<span class="polaroid__date">${esc(formatDate(p.taken_on))}</span>` : ""}</span>
-      </button>`,
-    )
-    .join("")}</div>`;
+  return `<div class="polaroids">${state.photos.map((p) => polaroidCard(p)).join("")}</div>`;
+}
+
+function polaroidCard(p, note) {
+  const sub = note || (p.taken_on ? formatDate(p.taken_on) : "");
+  return `<button type="button" class="polaroid" data-action="view-photo" data-id="${esc(p.id)}" aria-label="Lihat foto ${esc(p.title)}">
+    <img src="${esc(storage.publicUrl("kenangan", p.storage_path))}" alt="" loading="lazy" decoding="async">
+    <span class="polaroid__caption"><span class="polaroid__title">${esc(p.title)}</span>
+    ${sub ? `<span class="polaroid__date">${esc(sub)}</span>` : ""}</span>
+  </button>`;
 }
 
 function memoriesView() {
@@ -596,8 +739,257 @@ function usView() {
       </div>
     </section>
     <div class="people">${people}</div>
+    ${lettersSection()}
+    <section class="section">
+      <button type="button" class="banner banner--recap" data-action="open-recap" data-year="${recapYearInSeason() || Number(todayISO().slice(0, 4))}">
+        <span class="banner__icon">${icon("chart")}</span>
+        <span><strong>Rekap ${recapYearInSeason() || todayISO().slice(0, 4)} kita</strong><small>Setahun kita dalam angka</small></span></button>
+    </section>
     <div class="account"><span>Masuk sebagai ${esc(state.session?.user?.email)}</span>
       <button type="button" class="btn btn--sm btn--ghost" data-action="logout">Keluar</button></div>`;
+}
+
+/* ---------- Surat untuk nanti ---------- */
+
+function lettersSection() {
+  const head = (action) => `<div class="section-head"><div><h2>Surat untuk nanti</h2><p class="hint">Isinya terkunci sampai tanggal yang dipilih</p></div>${action}</div>`;
+  if (!state.lettersReady) {
+    return `<section class="section">${head("")}<div class="notice">Fitur surat perlu SQL <code>05-letters.sql</code> dijalankan dulu di Supabase.</div></section>`;
+  }
+  const write = `<button type="button" class="add-btn" data-action="write-letter">${icon("plus")}Tulis</button>`;
+  const cards = state.letters.map(letterCard).join("");
+  return `<section class="section">${head(write)}
+    ${cards ? `<div class="envelopes">${cards}</div>` : `<div class="empty"><p>Tulis surat untuk ${esc(partnerName())} yang baru bisa dibuka di hari spesial nanti.</p><button type="button" class="add-btn" data-action="write-letter">${icon("plus")}Tulis surat</button></div>`}
+  </section>`;
+}
+
+function letterCard(l) {
+  const mine = l.author_id === myUserId();
+  const days = daysUntil(l.unlock_on);
+  const from = mine ? `Darimu untuk ${partnerName()}` : `Dari ${l.author_name}`;
+  const status = l.is_locked ? `Terbuka ${whenLabel(days).toLowerCase()}` : "Sudah bisa dibaca";
+  return `<button type="button" class="envelope ${l.is_locked ? "is-locked" : ""}" data-action="read-letter" data-id="${esc(l.id)}" style="--c:${colorOf(mine ? myName() : l.author_name)}">
+    <span class="envelope__seal">${icon(l.is_locked ? "lock" : "heart", !l.is_locked)}</span>
+    <span class="envelope__body"><small>${esc(from)}</small><strong>${esc(l.title)}</strong><span class="envelope__status">${esc(status)}</span></span>
+  </button>`;
+}
+
+function openWriteLetterSheet() {
+  const today = todayISO();
+  const quick = [];
+  if (state.couple?.anniversary_date) {
+    const next = nextYearly(state.couple.anniversary_date);
+    // Surat harus dibuka setelah hari ini; kalau hari ini anniversary, pakai tahun depan.
+    const when = next.days === 0 ? `${Number(next.iso.slice(0, 4)) + 1}${next.iso.slice(4)}` : next.iso;
+    quick.push([when, "Anniversary berikutnya"]);
+  }
+  quick.push([addDaysISO(today, 30), "1 bulan lagi"], [addDaysISO(today, 365), "1 tahun lagi"]);
+  openSheet(
+    `Surat untuk ${esc(partnerName())}`,
+    `<form data-form="letter">
+      ${field("w-title", "Judul amplop (terlihat sebelum dibuka)", '<input id="w-title" name="title" maxlength="140" required placeholder="Untuk anniversary kita…">')}
+      ${field("w-body", "Isi surat", '<textarea id="w-body" name="body" class="letter-input" maxlength="10000" required placeholder="Hai sayang…"></textarea>')}
+      ${field("w-date", "Boleh dibuka mulai", `<input id="w-date" name="unlock_on" type="date" min="${addDaysISO(today, 1)}" required>`)}
+      <div class="quick-dates">${quick.map(([iso, label]) => `<button type="button" class="tag-btn" data-action="letter-date" data-date="${iso}">${label}</button>`).join("")}</div>
+      <p class="help">${esc(partnerName())} hanya bisa melihat amplopnya sampai tanggal itu. Surat yang sudah disegel tidak bisa diubah, hanya bisa dihapus olehmu.</p>
+      <div class="sheet__actions"><button type="submit" class="btn">Segel surat 💌</button></div>
+    </form>`,
+  );
+}
+
+function openLetter(id) {
+  const l = state.letters.find((x) => x.id === id);
+  if (!l) return;
+  const mine = l.author_id === myUserId();
+  if (l.body == null) {
+    const days = daysUntil(l.unlock_on);
+    openSheet(
+      "Masih tersegel",
+      `<div class="locked-letter" style="--c:${colorOf(l.author_name)}">${icon("lock")}
+        <p class="locked-letter__count">${esc(whenLabel(days))}</p>
+        <p>Surat “${esc(l.title)}” dari ${esc(l.author_name)} bisa dibuka mulai ${esc(formatDate(l.unlock_on))}. Sabar ya ♡</p></div>`,
+    );
+    return;
+  }
+  const to = mine ? partnerName() : myName();
+  openSheet(
+    esc(l.title),
+    `<article class="letter" style="--c:${colorOf(mine ? myName() : l.author_name)}">
+      <p class="letter__meta">Dari ${esc(mine ? myName() : l.author_name)} untuk ${esc(to)} · ditulis ${esc(formatDate(l.created_at.slice(0, 10)))}</p>
+      <div class="letter__body">${esc(l.body)}</div>
+    </article>
+    ${mine && l.is_locked ? `<p class="help" style="margin-top:14px">Hanya kamu yang bisa membaca ini sampai ${esc(formatDate(l.unlock_on))}.</p>` : ""}
+    ${mine ? `<div class="sheet__actions"><button type="button" class="btn btn--danger" data-action="delete-letter" data-id="${esc(l.id)}">Hapus surat</button></div>` : ""}`,
+  );
+}
+
+async function saveLetter(form) {
+  if (!form.reportValidity()) return;
+  await api("/rest/v1/letters", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      couple_id: state.couple.id,
+      author_name: myName(),
+      title: formValue(form, "title"),
+      body: formValue(form, "body"),
+      unlock_on: formValue(form, "unlock_on"),
+    }),
+  });
+  closeSheet();
+  await loadLetters();
+  render();
+  toast(`Surat tersegel. ${partnerName()} bisa membukanya nanti 💌`);
+}
+
+async function deleteLetter(id) {
+  if (!confirm("Hapus surat ini? Tidak bisa dikembalikan.")) return;
+  await api(`/rest/v1/letters?id=${eq(id)}`, { method: "DELETE" });
+  closeSheet();
+  await loadLetters();
+  render();
+  toast("Surat dihapus.");
+}
+
+/* ---------- Rekap tahunan ---------- */
+
+function buildRecap(year) {
+  const y = String(year);
+  const today = todayISO();
+  const inYear = (iso) => !!iso && iso.slice(0, 4) === y && iso <= today;
+  const photoDate = (p) => p.taken_on || p.created_at?.slice(0, 10);
+
+  const dates = entriesOf("schedule").filter((x) => inYear(x.event_date));
+  const places = [...new Set(dates.map((x) => x.location?.trim()).filter(Boolean))];
+  const photos = state.photos.filter((p) => inYear(photoDate(p)));
+  const wishes = entriesOf("wishlist").filter((x) => inYear(x.done_at));
+  const stories = entriesOf("memory").filter((x) => inYear(x.event_date));
+  const letters = state.letters.filter((l) => inYear(l.created_at?.slice(0, 10)));
+
+  const counts = Array(12).fill(0);
+  [...dates.map((x) => x.event_date), ...photos.map(photoDate), ...wishes.map((x) => x.done_at), ...stories.map((x) => x.event_date)].forEach(
+    (iso) => counts[Number(iso.slice(5, 7)) - 1]++,
+  );
+  const busiestCount = Math.max(...counts);
+  return { year, dates, places, photos, wishes, stories, letters, busiest: busiestCount > 0 ? counts.indexOf(busiestCount) : -1, busiestCount };
+}
+
+function recapSlides(r) {
+  const slides = [
+    {
+      theme: "kita",
+      html: `${venn("md")}<small>Rekap</small><p class="recap__big">${r.year}</p><p>Setahun cerita ${esc(coupleNames())}</p>`,
+    },
+  ];
+  if (r.dates.length) {
+    slides.push({
+      theme: "aiya",
+      html: `<small>Tahun ini kita punya</small><p class="recap__num">${r.dates.length}</p><h2>kencan & rencana</h2>
+        ${r.places.length ? `<p>di ${r.places.length} tempat, termasuk ${esc(r.places.slice(0, 3).join(", "))}</p>` : ""}`,
+    });
+  }
+  if (r.photos.length) {
+    slides.push({
+      theme: "denan",
+      html: `<small>Momen yang kita abadikan</small><p class="recap__num">${r.photos.length}</p><h2>foto kenangan</h2>
+        <div class="recap__photos">${r.photos
+          .slice(0, 4)
+          .map((p) => `<img src="${esc(storage.publicUrl("kenangan", p.storage_path))}" alt="${esc(p.title)}">`)
+          .join("")}</div>`,
+    });
+  }
+  if (r.wishes.length) {
+    slides.push({
+      theme: "butter",
+      html: `<small>Impian yang terwujud</small><p class="recap__num">${r.wishes.length}</p><h2>wishlist jadi kenyataan</h2>
+        <ul class="recap__list">${r.wishes.slice(0, 4).map((x) => `<li>${esc(x.title)}</li>`).join("")}</ul>`,
+    });
+  }
+  if (r.busiest >= 0) {
+    slides.push({
+      theme: "aiya",
+      html: `<small>Bulan paling seru</small><p class="recap__big">${MONTHS_LONG[r.busiest]}</p><p>${r.busiestCount} momen tercatat dalam sebulan</p>`,
+    });
+  }
+  if (r.stories.length + r.letters.length) {
+    slides.push({
+      theme: "denan",
+      html: `<small>Kata-kata yang kita simpan</small><p class="recap__num">${r.stories.length + r.letters.length}</p><h2>cerita & surat</h2>`,
+    });
+  }
+  if (slides.length === 1) {
+    slides.push({ theme: "butter", html: `<small>Tahun ini</small><h2>Belum banyak yang tercatat</h2><p>Yuk isi rencana, foto, dan cerita supaya rekap tahun depan penuh ♡</p>` });
+  }
+  slides.push({
+    theme: "ink",
+    html: state.couple?.anniversary_date
+      ? `<small>Sampai hari ini</small><p class="recap__num">${daysTogether().toLocaleString("id-ID")}</p><h2>hari bersama</h2><p>Sampai jumpa di cerita ${r.year + 1} ♡</p>`
+      : `<small>Sampai jumpa</small><h2>di cerita ${r.year + 1} ♡</h2>`,
+  });
+  return slides;
+}
+
+let recapEl = null;
+function openRecap(year) {
+  const slides = recapSlides(buildRecap(year));
+  let index = 0;
+  const opener = document.activeElement;
+  recapEl = document.createElement("div");
+  recapEl.className = "recap";
+  recapEl.setAttribute("role", "dialog");
+  recapEl.setAttribute("aria-modal", "true");
+  recapEl.setAttribute("aria-label", `Rekap ${year}`);
+
+  const show = () => {
+    const slide = slides[index];
+    const last = index === slides.length - 1;
+    recapEl.dataset.theme = slide.theme;
+    recapEl.innerHTML = `<div class="recap__bars">${slides.map((_, i) => `<span class="${i <= index ? "is-on" : ""}"></span>`).join("")}</div>
+      <button type="button" class="icon-btn recap__close" data-recap="close" aria-label="Tutup rekap">×</button>
+      <div class="recap__slide" aria-live="polite">${slide.html}</div>
+      <div class="recap__foot">
+        ${index > 0 ? '<button type="button" class="btn btn--sm recap__btn--ghost" data-recap="prev">Sebelumnya</button>' : "<span></span>"}
+        <button type="button" class="btn btn--sm recap__btn" data-recap="${last ? "close" : "next"}">${last ? "Selesai ♡" : "Lanjut"}</button>
+      </div>`;
+    $(`[data-recap="${last ? "close" : "next"}"]`, recapEl).focus({ preventScroll: true });
+  };
+  const close = () => {
+    document.removeEventListener("keydown", onKey, true);
+    recapEl.remove();
+    recapEl = null;
+    document.body.classList.remove("no-scroll");
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
+  };
+  const go = (step) => {
+    const next = index + step;
+    if (next < 0) return;
+    if (next >= slides.length) return close();
+    index = next;
+    show();
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowRight") go(1);
+    else if (e.key === "ArrowLeft") go(-1);
+    else return;
+    e.stopPropagation();
+    e.preventDefault();
+  };
+  recapEl.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-recap]");
+    if (btn) {
+      const action = btn.dataset.recap;
+      if (action === "close") close();
+      else go(action === "next" ? 1 : -1);
+      return;
+    }
+    // Ketuk sisi kanan layar = lanjut, sisi kiri = kembali (seperti story)
+    go(e.clientX > window.innerWidth / 3 ? 1 : -1);
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(recapEl);
+  document.body.classList.add("no-scroll");
+  show();
 }
 
 /* ---------- Halaman publik & login ---------- */
@@ -708,7 +1100,7 @@ function entryFields(cat, values = {}) {
 
 const KIND_TO_CATEGORY = { calendar: "schedule", special: "important_date", wishlist: "wishlist", gift: "gift", memory: "memory" };
 
-function openEntrySheet({ kind, id }) {
+function openEntrySheet({ kind, id, prefill = {} }) {
   const editing = id ? state.entries.find((e) => e.id === id) : null;
   if (id && !editing) return;
   const category = editing ? editing.category : KIND_TO_CATEGORY[kind];
@@ -728,7 +1120,8 @@ function openEntrySheet({ kind, id }) {
     title,
     `<form data-form="entry" ${editing ? `data-editing="${esc(editing.id)}"` : ""}>
       ${typeControl}
-      <div data-entry-fields>${entryFields(category, editing || {})}</div>
+      <div data-entry-fields>${entryFields(category, editing || prefill)}</div>
+      ${editing ? calendarExport(editing) : ""}
       <div class="sheet__actions">
         ${editing ? `<button type="button" class="btn btn--danger" data-action="delete-entry" data-id="${esc(editing.id)}">Hapus</button>` : ""}
         <button type="submit" class="btn">${editing ? "Simpan perubahan" : "Simpan"}</button>
@@ -737,13 +1130,89 @@ function openEntrySheet({ kind, id }) {
   );
 }
 
+/* ---------- Simpan ke kalender HP / Google Calendar ---------- */
+
+const compactDate = (iso) => iso.replace(/-/g, "");
+
+function calendarExport(x) {
+  if (!x.event_date || (x.category !== "schedule" && x.category !== "important_date")) return "";
+  return `<div class="export"><span>${icon("calendar")} Ingatkan lewat kalender HP</span>
+    <div class="export__buttons">
+      <button type="button" class="btn btn--sm btn--soft" data-action="ics" data-id="${esc(x.id)}">Kalender HP</button>
+      <a class="btn btn--sm btn--soft" href="${esc(googleCalendarUrl(x))}" target="_blank" rel="noopener">Google Calendar</a>
+    </div></div>`;
+}
+
+function eventTimes(x) {
+  const yearly = x.category === "important_date";
+  const time = !yearly && x.event_time ? x.event_time.slice(0, 5).replace(":", "") : null;
+  if (time) {
+    const [h, m] = [Number(time.slice(0, 2)), Number(time.slice(2))];
+    const endH = h + 2;
+    const endDate = endH >= 24 ? addDaysISO(x.event_date, 1) : x.event_date;
+    return { yearly, start: `${compactDate(x.event_date)}T${time}00`, end: `${compactDate(endDate)}T${pad(endH % 24)}${pad(m)}00`, allDay: false };
+  }
+  return { yearly, start: compactDate(x.event_date), end: compactDate(addDaysISO(x.event_date, 1)), allDay: true };
+}
+
+function googleCalendarUrl(x) {
+  const t = eventTimes(x);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: x.title,
+    dates: `${t.start}/${t.end}`,
+    details: x.description || "Dari aplikasi Kita Berdua ♡",
+  });
+  if (!t.allDay) params.set("ctz", "Asia/Jakarta");
+  if (x.location) params.set("location", x.location);
+  if (t.yearly) params.set("recur", "RRULE:FREQ=YEARLY");
+  return "https://calendar.google.com/calendar/render?" + params.toString();
+}
+
+function downloadIcs(x) {
+  const t = eventTimes(x);
+  const text = (v) => String(v || "").replace(/\\/g, "\\\\").replace(/[;,]/g, (c) => "\\" + c).replace(/\r?\n/g, "\\n");
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Kita Berdua//ID",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${x.id}@kita-berdua`,
+    `DTSTAMP:${stamp}`,
+    t.allDay ? `DTSTART;VALUE=DATE:${t.start}` : `DTSTART;TZID=Asia/Jakarta:${t.start}`,
+    t.allDay ? `DTEND;VALUE=DATE:${t.end}` : `DTEND;TZID=Asia/Jakarta:${t.end}`,
+    ...(t.yearly ? ["RRULE:FREQ=YEARLY"] : []),
+    `SUMMARY:${text(x.title)}`,
+    ...(x.location ? [`LOCATION:${text(x.location)}`] : []),
+    `DESCRIPTION:${text(x.description || "Dari aplikasi Kita Berdua")}`,
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${text(x.title)}`,
+    t.allDay ? "TRIGGER:-PT15H" : "TRIGGER:-PT1H", // H-1 jam 09.00 untuk acara seharian
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  const blob = new Blob([lines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (x.title.replace(/[^\w\s-]/g, "").trim().slice(0, 40) || "kita-berdua") + ".ics";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
 function switchEntryCategory(radio) {
   const form = radio.form;
   const values = Object.fromEntries(ENTRY_FIELDS.map((k) => [k, formValue(form, k)]));
   $("[data-entry-fields]", form).innerHTML = entryFields(radio.value, values);
 }
 
-function openPhotoSheet() {
+function openPhotoSheet(prefill = {}) {
   openSheet(
     "Tambah foto kenangan",
     `<form data-form="photos">
@@ -751,12 +1220,24 @@ function openPhotoSheet() {
         <small>Maksimal ${MEMORY_MAX_FILES} foto, masing-masing 8 MB</small>
         <input type="file" accept="${Object.keys(IMAGE_EXT).join(",")}" multiple data-photo-input></label>
       <div class="thumbs" data-thumbs>${thumbsMarkup()}</div>
-      ${field("p-title", "Judul kenangan", '<input id="p-title" name="title" maxlength="140" required placeholder="Hari paling bahagia…">')}
-      ${field("p-date", "Tanggal (opsional)", '<input id="p-date" name="taken_on" type="date">')}
+      ${field("p-title", "Judul kenangan", `<input id="p-title" name="title" maxlength="140" required placeholder="Hari paling bahagia…" value="${esc(prefill.title)}">`)}
+      ${field("p-date", "Tanggal (opsional)", `<input id="p-date" name="taken_on" type="date" value="${esc(prefill.taken_on)}">`)}
       ${field("p-caption", "Cerita singkat (opsional)", '<textarea id="p-caption" name="caption" maxlength="1500" placeholder="Ceritakan momen ini…"></textarea>')}
       <p class="help">Foto di galeri bisa dilihat pengunjung tanpa login.</p>
       <div class="sheet__actions"><button type="submit" class="btn">Upload foto</button></div>
     </form>`,
+  );
+}
+
+function openDoneSheet(x) {
+  openSheet(
+    "Yeay, terwujud! 🎉",
+    `<p class="lead">“${esc(x.title)}” sudah kalian lakukan. Simpan momennya jadi kenangan?</p>
+    <div class="choice">
+      <button type="button" class="choice__btn" data-action="wish-photo" data-id="${esc(x.id)}">${icon("photo")}<span><strong>Upload foto</strong><small>Masuk ke galeri polaroid</small></span></button>
+      <button type="button" class="choice__btn" data-action="wish-story" data-id="${esc(x.id)}">${icon("pen")}<span><strong>Tulis cerita</strong><small>Tanpa foto juga boleh</small></span></button>
+    </div>
+    <div class="sheet__actions"><button type="button" class="btn btn--ghost btn--block" data-action="close-sheet">Nanti saja</button></div>`,
   );
 }
 
@@ -849,6 +1330,21 @@ async function deleteEntry(id) {
   closeSheet();
   await reload();
   toast("Item dihapus.");
+}
+
+async function toggleDone(id) {
+  const x = state.entries.find((e) => e.id === id);
+  if (!x) return;
+  const doneAt = x.done_at ? null : todayISO();
+  try {
+    await api(`/rest/v1/entries?id=${eq(id)}`, { method: "PATCH", body: JSON.stringify({ done_at: doneAt }) });
+  } catch (err) {
+    if (/done_at/i.test(err.message)) throw new Error("Fitur centang perlu SQL 04-wishlist-done dijalankan dulu di Supabase.");
+    throw err;
+  }
+  await reload();
+  if (doneAt) openDoneSheet(x);
+  else toast("Dikembalikan ke wishlist.");
 }
 
 async function saveAnniversary(form) {
@@ -1316,6 +1812,41 @@ document.addEventListener("click", async (e) => {
       case "remove-pending":
         removePending(Number(el.dataset.index));
         break;
+      case "toggle-done":
+        await withBusy(el, "…", () => toggleDone(el.dataset.id));
+        break;
+      case "wish-photo": {
+        const x = state.entries.find((e) => e.id === el.dataset.id);
+        openPhotoSheet({ title: x?.title, taken_on: x?.done_at });
+        break;
+      }
+      case "wish-story": {
+        const x = state.entries.find((e) => e.id === el.dataset.id);
+        openEntrySheet({ kind: "memory", prefill: { title: x?.title, event_date: x?.done_at, description: x?.description } });
+        break;
+      }
+      case "ics": {
+        const x = state.entries.find((e) => e.id === el.dataset.id);
+        if (x) downloadIcs(x);
+        break;
+      }
+      case "write-letter":
+        openWriteLetterSheet();
+        break;
+      case "letter-date": {
+        const input = $("#w-date");
+        if (input) input.value = el.dataset.date;
+        break;
+      }
+      case "read-letter":
+        openLetter(el.dataset.id);
+        break;
+      case "delete-letter":
+        await withBusy(el, "Menghapus…", () => deleteLetter(el.dataset.id));
+        break;
+      case "open-recap":
+        openRecap(Number(el.dataset.year));
+        break;
     }
   } catch (err) {
     toast(err.message, true);
@@ -1334,6 +1865,7 @@ document.addEventListener("submit", async (e) => {
     anniversary: () => withBusy(button, "Menyimpan…", () => saveAnniversary(form)),
     hobbies: () => withBusy(button, "Menyimpan…", () => saveHobbies(form)),
     photos: () => withBusy(button, "Mengunggah…", () => uploadMemoryPhotos(form)),
+    letter: () => withBusy(button, "Menyegel…", () => saveLetter(form)),
   };
   try {
     await handlers[kind]?.();
