@@ -17,6 +17,9 @@ supabase/
   03-member-hobbies.sql tabel hobi (privat) + migrasi data lama
   04-wishlist-done.sql  kolom untuk mencentang wishlist yang sudah dilakukan
   05-letters.sql        surat untuk dibuka nanti (dikunci oleh database)
+  06-daily-questions.sql pertanyaan harian (jawaban terbuka setelah ikut menjawab)
+  07-love-coupons.sql   kupon cinta (hanya penerima yang bisa menukar)
+  08-photo-albums.sql   album: beberapa foto dalam satu kenangan
 ```
 
 Nama dan warna pasangan diatur di satu tempat: konstanta `PEOPLE` di bagian atas `app.js`. Warna dasar ada di bagian `:root` di `style.css` (`--aiya`, `--denan`, `--kita`).
@@ -27,7 +30,7 @@ Konsep "dua warna yang bertemu": Aiya rose, Denan biru malam, dan titik temunya 
 
 ## Menjalankan SQL (sekali saja)
 
-Di Supabase → SQL Editor, jalankan berurutan: `01` sampai `05`. Semua skrip aman dijalankan ulang, jadi yang sudah pernah dijalankan boleh dilewati.
+Di Supabase → SQL Editor, jalankan berurutan: `01` sampai `08`. Semua skrip aman dijalankan ulang, jadi yang sudah pernah dijalankan boleh dilewati.
 
 - `01` sama dengan `supabase-memory-setup.sql` versi lama. Lewati jika sudah pernah dijalankan.
 - `02` membuat/merapikan tabel `profile_photos` dan bucket `profil`.
@@ -50,6 +53,9 @@ Setiap kali `style.css` atau `app.js` berubah, naikkan `VERSION` di `sw.js` agar
 - **Kalender HP**: buka rencana atau tanggal penting, lalu pilih "Kalender HP" (file .ics) atau "Google Calendar". Tanggal penting otomatis berulang tiap tahun.
 - **Wishlist → kenangan**: centang wishlist yang sudah dilakukan, lalu langsung upload foto atau tulis ceritanya.
 - **Surat untuk nanti** (tab Kita): isi surat dikunci database sampai tanggal bukanya (WIB). Pasangan hanya melihat amplopnya.
+- **Pertanyaan harian** (beranda): satu pertanyaan per hari (WIB), sama untuk berdua. Jawaban pasangan terbuka setelah kamu ikut menjawab, atau keesokan harinya. Daftar pertanyaan ada di `DAILY_QUESTIONS` di `app.js`.
+- **Kupon cinta** (tab Hadiah): buat kupon untuk pasangan; hanya penerima yang bisa menukarnya, dan isinya tidak bisa diubah setelah dibuat.
+- **Album foto**: foto yang diupload bersamaan tampil sebagai satu polaroid bertumpuk, bisa digeser di layar penuh.
 - **Rekap tahunan**: muncul di beranda mulai 1 Desember sampai 15 Januari, dan bisa dibuka kapan saja dari tab Kita.
 
 ## Ganti foto profil

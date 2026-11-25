@@ -30,6 +30,10 @@ const ICONS = {
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   pen: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  ticket: '<path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4z"/><path d="M14 6v12" stroke-dasharray="2 2.5"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>',
+  right: '<path d="M9 5l7 7-7 7"/>',
 };
 const icon = (name, fill = false) =>
   `<svg viewBox="0 0 24 24" fill="${fill ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${fill ? 0 : 1.9}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -65,6 +69,64 @@ const DATE_IDEAS = [
   "Bikin playlist untuk satu sama lain",
 ];
 
+// Pertanyaan harian: urutannya sama untuk kalian berdua, berganti setiap hari (WIB).
+const DAILY_QUESTIONS = [
+  "Momen kecil apa minggu ini yang bikin kamu senyum?",
+  "Lagu apa yang paling mengingatkanmu pada kita?",
+  "Kalau besok kita libur seharian, mau ngapain?",
+  "Apa kebiasaan kecilku yang diam-diam kamu suka?",
+  "Makanan apa yang paling pengin kamu makan bareng aku sekarang?",
+  "Kapan pertama kali kamu merasa nyaman banget sama aku?",
+  "Satu hal yang ingin kamu coba bareng aku tahun ini?",
+  "Apa yang paling bikin kamu capek akhir-akhir ini?",
+  "Tempat mana yang pengin kamu datangi lagi berdua?",
+  "Apa yang bisa aku lakukan supaya harimu besok lebih ringan?",
+  "Film atau series apa yang pengin kamu tonton bareng?",
+  "Apa kenangan masa kecil yang paling kamu suka?",
+  "Kalau kita punya rumah sendiri, ruangan mana yang paling penting buatmu?",
+  "Apa yang paling kamu syukuri dari hubungan kita?",
+  "Hadiah sederhana apa yang paling berkesan buatmu?",
+  "Kalau bisa teleport sekarang, mau ke mana?",
+  "Apa satu hal yang belum pernah kamu ceritakan ke aku?",
+  "Bagaimana caramu tahu aku lagi sedih?",
+  "Apa julukan buatku yang paling cocok menurutmu?",
+  "Apa mimpi besarmu lima tahun lagi?",
+  "Kegiatan apa yang bikin kamu lupa waktu?",
+  "Kalau hari ini diberi judul, judulnya apa?",
+  "Apa yang paling kamu kangen dari aku kalau kita lagi jauh?",
+  "Makanan apa yang pengin kamu ajarin aku masak?",
+  "Apa sifatmu yang pengin kamu perbaiki?",
+  "Momen paling lucu yang pernah kita alami?",
+  "Apa definisi kencan sempurna menurutmu?",
+  "Apa yang bikin kamu merasa dihargai?",
+  "Kalau kita bikin tradisi tahunan, tradisinya apa?",
+  "Apa ketakutan kecil yang kamu punya?",
+  "Siapa orang yang paling berpengaruh dalam hidupmu?",
+  "Apa yang pertama kali kamu pikirkan waktu bangun pagi ini?",
+  "Hal kecil apa yang bikin kamu merasa disayang?",
+  "Kalau kita punya hewan peliharaan, mau namain apa?",
+  "Apa pelajaran terbesar yang kamu dapat tahun ini?",
+  "Kalau harus makan satu menu seumur hidup, pilih apa?",
+  "Apa yang paling pengin kamu dengar dari aku hari ini?",
+  "Musim atau cuaca favoritmu, dan kenapa?",
+  "Apa yang bikin kamu jatuh cinta sama aku?",
+  "Kalau bisa mengulang satu hari bersama, hari yang mana?",
+  "Apa yang ingin kamu lakukan lebih sering bareng aku?",
+  "Hobi baru apa yang pengin kita coba berdua?",
+  "Apa satu kata yang menggambarkan kita?",
+  "Kalau kamu nulis surat ke dirimu 10 tahun lalu, isinya apa?",
+  "Hal apa yang bikin kamu bangga sama aku?",
+  "Apa rencana kecil kita untuk akhir pekan ini?",
+  "Kebiasaan pagi apa yang paling kamu suka?",
+  "Apa lagu yang pengin kamu nyanyiin bareng aku?",
+  "Kalau kita menang undian, uangnya mau dipakai untuk apa dulu?",
+  "Apa yang paling kamu suka dari cara kita berbaikan?",
+  "Satu hal yang pengin kamu bilang ke aku tapi suka lupa?",
+  "Apa yang membuatmu merasa paling jadi diri sendiri?",
+  "Kalau hidup kita jadi film, genrenya apa?",
+  "Apa momen yang bikin kamu yakin sama kita?",
+];
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const MB = 1024 * 1024;
 const IMAGE_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
@@ -98,6 +160,11 @@ const state = {
   pendingPhotos: [], // [{ file, url }]
   letters: [],
   lettersReady: false, // false = tabel surat belum dibuat (SQL 05)
+  answers: [],
+  answersReady: false, // SQL 06
+  coupons: [],
+  couponsReady: false, // SQL 07
+  albumsSupported: true, // false jika kolom album_id belum ada (SQL 08)
   celebrated: false,
 };
 
@@ -188,6 +255,14 @@ function whenLabel(days) {
   return `${days} hari lagi`;
 }
 
+// Tanggal hari ini menurut WIB, sama dengan yang dipakai database.
+function wibToday() {
+  return new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+}
+function questionFor(day) {
+  return DAILY_QUESTIONS[((isoToDay(day) % DAILY_QUESTIONS.length) + DAILY_QUESTIONS.length) % DAILY_QUESTIONS.length];
+}
+
 function addDaysISO(iso, n) {
   const d = new Date((isoToDay(iso) + n) * 86400000);
   return d.toISOString().slice(0, 10);
@@ -218,7 +293,10 @@ function readStoredSession() {
 }
 
 function clearCoupleData() {
-  Object.assign(state, { couple: null, members: [], entries: [], hobbies: {}, letters: [], lettersReady: false });
+  Object.assign(state, {
+    couple: null, members: [], entries: [], hobbies: {},
+    letters: [], lettersReady: false, answers: [], answersReady: false, coupons: [], couponsReady: false,
+  });
 }
 
 let refreshPromise = null;
@@ -308,9 +386,8 @@ const storage = {
 
 async function loadPhotos() {
   try {
-    state.photos = await api(
-      "/rest/v1/memory_photos?select=id,couple_id,title,caption,taken_on,storage_path,created_at&order=created_at.desc",
-    );
+    // select=* supaya kolom album_id ikut terbaca bila sudah ada (SQL 08)
+    state.photos = (await api("/rest/v1/memory_photos?select=*&order=created_at.desc")) || [];
     state.photoError = "";
   } catch {
     state.photos = [];
@@ -350,6 +427,26 @@ async function loadLetters() {
   }
 }
 
+async function loadAnswers() {
+  try {
+    state.answers = (await api("/rest/v1/rpc/list_answers", { method: "POST", body: "{}" })) || [];
+    state.answersReady = true;
+  } catch {
+    state.answers = [];
+    state.answersReady = false;
+  }
+}
+
+async function loadCoupons() {
+  try {
+    state.coupons = (await api(`/rest/v1/love_coupons?select=*&couple_id=${eq(state.couple.id)}&order=created_at.desc`)) || [];
+    state.couponsReady = true;
+  } catch {
+    state.coupons = [];
+    state.couponsReady = false;
+  }
+}
+
 async function loadCouple() {
   const memberships = await api(`/rest/v1/couple_members?select=couple_id&user_id=${eq(state.session.user.id)}`);
   if (!memberships?.length) {
@@ -365,7 +462,7 @@ async function loadCouple() {
   state.couple = couples?.[0] || null;
   state.members = members || [];
   state.entries = entries || [];
-  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters()]);
+  if (state.couple) await Promise.all([loadProfilePhotos(), loadHobbies(), loadLetters(), loadAnswers(), loadCoupons()]);
 }
 
 async function reload() {
@@ -574,6 +671,7 @@ function calendarView() {
     .join("");
 
   return `${heroView()}
+    ${dailyCard()}
     ${homeExtras()}
     <section class="section">
       <div class="section-head"><h2>Akan datang</h2>${addButton("calendar")}</div>
@@ -589,6 +687,100 @@ function calendarView() {
       <div class="section-head"><div><h2>Tanggal penting</h2><p class="hint">Diingatkan setiap tahun</p></div>${addButton("special")}</div>
       ${specialRows ? `<div class="list">${specialRows}</div>` : emptyState("Ulang tahun, hari pertama ketemu, apa saja yang ingin diingat.", "special", "Tambah tanggal")}
     </section>`;
+}
+
+/* ---------- Pertanyaan harian ---------- */
+
+function answerBubble(a, { hiddenText } = {}) {
+  const name = a.author_name;
+  return `<div class="answer" style="--c:${colorOf(name)}"><span class="answer__who">${esc(name)}</span>
+    ${a.answer != null ? `<p>${esc(a.answer)}</p>` : `<p class="answer__hidden">${icon("lock")} ${esc(hiddenText || "Tersembunyi")}</p>`}</div>`;
+}
+
+function dailyCard() {
+  if (!state.answersReady) {
+    return `<section class="daily"><p class="daily__label">${icon("chat")} Pertanyaan hari ini</p>
+      <p class="notice" style="margin:8px 0 0">Fitur ini perlu SQL <code>06-daily-questions.sql</code> dijalankan dulu di Supabase.</p></section>`;
+  }
+  const day = wibToday();
+  const todays = state.answers.filter((a) => a.day === day);
+  const mine = todays.find((a) => a.author_id === myUserId());
+  const theirs = todays.find((a) => a.author_id !== myUserId());
+  const question = mine?.question || theirs?.question || questionFor(day);
+  const partner = partnerName();
+  const pastDays = new Set(state.answers.filter((a) => a.day < day).map((a) => a.day)).size;
+
+  let body;
+  if (!mine) {
+    body = `${theirs ? `<p class="daily__status">${esc(partner)} sudah menjawab. Jawab dulu untuk membuka jawabannya ♡</p>` : `<p class="daily__status">Belum ada yang menjawab. Kamu duluan?</p>`}
+      <button type="button" class="btn" data-action="answer-daily">Jawab</button>`;
+  } else {
+    body = `<div class="answers">${answerBubble(mine)}${
+      theirs ? answerBubble(theirs) : `<div class="answer answer--waiting" style="--c:${colorOf(partner)}"><span class="answer__who">${esc(partner)}</span><p class="answer__hidden">Belum menjawab…</p></div>`
+    }</div>
+      <button type="button" class="link-btn" data-action="answer-daily">Ubah jawabanku</button>`;
+  }
+
+  return `<section class="daily">
+    <p class="daily__label">${icon("chat")} Pertanyaan hari ini</p>
+    <h2 class="daily__q">${esc(question)}</h2>
+    ${body}
+    ${pastDays ? `<button type="button" class="link-btn daily__archive" data-action="answers-archive">Jawaban sebelumnya (${pastDays} hari)</button>` : ""}
+  </section>`;
+}
+
+function openAnswerSheet() {
+  const day = wibToday();
+  const mine = state.answers.find((a) => a.day === day && a.author_id === myUserId());
+  const question = mine?.question || state.answers.find((a) => a.day === day)?.question || questionFor(day);
+  openSheet(
+    "Pertanyaan hari ini",
+    `<form data-form="answer" data-question="${esc(question)}" ${mine ? `data-editing="${esc(mine.id)}"` : ""}>
+      <p class="sheet-question">${esc(question)}</p>
+      ${field("d-answer", "Jawabanmu", `<textarea id="d-answer" name="answer" maxlength="2000" required placeholder="Tulis jujur saja…">${esc(mine?.answer)}</textarea>`)}
+      <p class="help">${esc(partnerName())} baru bisa melihat jawabanmu setelah ikut menjawab, atau besok.</p>
+      <div class="sheet__actions"><button type="submit" class="btn">Kirim jawaban</button></div>
+    </form>`,
+  );
+}
+
+async function saveAnswer(form) {
+  if (!form.reportValidity()) return;
+  const answer = formValue(form, "answer");
+  if (form.dataset.editing) {
+    await api(`/rest/v1/daily_answers?id=${eq(form.dataset.editing)}`, { method: "PATCH", body: JSON.stringify({ answer }) });
+  } else {
+    await api("/rest/v1/daily_answers", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ couple_id: state.couple.id, author_name: myName(), day: wibToday(), question: form.dataset.question, answer }),
+    });
+  }
+  closeSheet();
+  await loadAnswers();
+  render();
+  const theirs = state.answers.find((a) => a.day === wibToday() && a.author_id !== myUserId());
+  toast(theirs ? `Terbuka! Lihat jawaban ${theirs.author_name} ♡` : "Jawaban terkirim ♡");
+}
+
+function openAnswersArchive() {
+  const today = wibToday();
+  const byDay = new Map();
+  for (const a of state.answers) {
+    if (a.day >= today) continue;
+    if (!byDay.has(a.day)) byDay.set(a.day, []);
+    byDay.get(a.day).push(a);
+  }
+  const days = [...byDay.entries()]
+    .map(
+      ([day, list]) => `<article class="archive-day">
+        <p class="archive-day__date">${esc(formatDate(day))}</p>
+        <h3>${esc(list[0].question)}</h3>
+        <div class="answers">${list.map((a) => answerBubble(a)).join("")}</div>
+      </article>`,
+    )
+    .join("");
+  openSheet("Jawaban sebelumnya", days || '<p class="muted">Belum ada.</p>');
 }
 
 function homeExtras() {
@@ -616,7 +808,7 @@ function homeExtras() {
   if (past.photos.length || past.stories.length) {
     parts.push(`<section class="section">
       <div class="section-head"><div><h2>Hari ini, dulu</h2><p class="hint">${esc(formatDate(today, false))} di tahun-tahun sebelumnya</p></div></div>
-      ${past.photos.length ? `<div class="polaroids polaroids--small">${past.photos.map((p) => polaroidCard(p, yearsAgo(p.taken_on))).join("")}</div>` : ""}
+      ${past.photos.length ? `<div class="polaroids polaroids--small">${albumsOf(past.photos).map((a) => polaroidCard(a.photos[0], yearsAgo(a.photos[0].taken_on), a.photos.length)).join("")}</div>` : ""}
       ${past.stories.length ? `<div class="list" style="margin-top:12px">${past.stories.map((x) => entryRow(x, { lead: markIcon("heart"), chip: yearsAgo(x.event_date), meta: esc(formatDate(x.event_date)) })).join("")}</div>` : ""}
     </section>`);
   }
@@ -671,13 +863,32 @@ const canManagePhoto = (photo) =>
 function polaroids() {
   if (state.photoError) return `<div class="notice">${esc(state.photoError)}</div>`;
   if (!state.photos.length) return "";
-  return `<div class="polaroids">${state.photos.map((p) => polaroidCard(p)).join("")}</div>`;
+  return `<div class="polaroids">${albumsOf(state.photos).map((a) => polaroidCard(a.photos[0], "", a.photos.length)).join("")}</div>`;
 }
 
-function polaroidCard(p, note) {
+// Kelompokkan foto berdasarkan album_id; foto tanpa album jadi album berisi satu.
+function albumsOf(photos) {
+  const map = new Map();
+  const albums = [];
+  for (const p of photos) {
+    const key = p.album_id || p.id;
+    if (!map.has(key)) {
+      const album = { key, photos: [] };
+      map.set(key, album);
+      albums.push(album);
+    }
+    map.get(key).photos.push(p);
+  }
+  for (const a of albums) a.photos.sort((x, y) => (x.created_at || "").localeCompare(y.created_at || ""));
+  return albums;
+}
+const albumOfPhoto = (id) => albumsOf(state.photos).find((a) => a.photos.some((p) => p.id === id));
+
+function polaroidCard(p, note, count = 1) {
   const sub = note || (p.taken_on ? formatDate(p.taken_on) : "");
-  return `<button type="button" class="polaroid" data-action="view-photo" data-id="${esc(p.id)}" aria-label="Lihat foto ${esc(p.title)}">
+  return `<button type="button" class="polaroid ${count > 1 ? "polaroid--stack" : ""}" data-action="view-photo" data-id="${esc(p.id)}" aria-label="Lihat ${count > 1 ? count + " foto" : "foto"} ${esc(p.title)}">
     <img src="${esc(storage.publicUrl("kenangan", p.storage_path))}" alt="" loading="lazy" decoding="async">
+    ${count > 1 ? `<span class="polaroid__count">${icon("photo")}${count}</span>` : ""}
     <span class="polaroid__caption"><span class="polaroid__title">${esc(p.title)}</span>
     ${sub ? `<span class="polaroid__date">${esc(sub)}</span>` : ""}</span>
   </button>`;
@@ -702,11 +913,111 @@ function memoriesView() {
 
 /* ---------- Hadiah ---------- */
 
+const COUPON_IDEAS = [
+  "1x dipijat 15 menit",
+  "Traktir boba",
+  "Bebas pilih film malam ini",
+  "Dimasakin menu favorit",
+  "Dijemput ke mana saja",
+  "Pelukan 1 menit penuh",
+  "Bebas pilih tempat makan",
+  "Satu hari tanpa ngambek",
+];
+
+const shortDate = (iso) => {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+};
+
+function couponCard(c) {
+  const mine = c.from_id === myUserId();
+  const redeemed = !!c.redeemed_at;
+  let stub;
+  if (redeemed) stub = `<span class="coupon__stamp">Ditukar<br>${esc(shortDate(c.redeemed_at))}</span>`;
+  else if (!mine) stub = `<button type="button" class="btn btn--sm coupon__redeem" data-action="redeem-coupon" data-id="${esc(c.id)}">Tukar</button>`;
+  else stub = `<span class="coupon__wait">Belum<br>ditukar</span>`;
+  return `<article class="coupon ${redeemed ? "is-redeemed" : ""}" style="--c:${colorOf(c.from_name)}">
+    <div class="coupon__main">
+      <small>${mine ? `Darimu untuk ${esc(partnerName())}` : `Dari ${esc(c.from_name)} untukmu`}</small>
+      <strong>${esc(c.title)}</strong>
+      ${c.note ? `<p>${esc(c.note)}</p>` : ""}
+      ${mine && !redeemed ? `<button type="button" class="link-btn coupon__del" data-action="delete-coupon" data-id="${esc(c.id)}">Hapus</button>` : ""}
+    </div>
+    <div class="coupon__stub">${stub}</div>
+  </article>`;
+}
+
+function couponsSection() {
+  const head = (action) => `<div class="section-head"><div><h2>Kupon cinta</h2><p class="hint">Bisa ditukar kapan saja oleh penerimanya</p></div>${action}</div>`;
+  if (!state.couponsReady) {
+    return `<section class="section">${head("")}<div class="notice">Fitur kupon perlu SQL <code>07-love-coupons.sql</code> dijalankan dulu di Supabase.</div></section>`;
+  }
+  const me = myUserId();
+  const forMe = state.coupons.filter((c) => c.from_id !== me && !c.redeemed_at);
+  const fromMe = state.coupons.filter((c) => c.from_id === me && !c.redeemed_at);
+  const used = state.coupons.filter((c) => c.redeemed_at).sort((a, b) => b.redeemed_at.localeCompare(a.redeemed_at));
+  const add = `<button type="button" class="add-btn" data-action="new-coupon">${icon("plus")}Buat</button>`;
+  const group = (title, list) => (list.length ? `<h3 class="sub-head">${title}</h3><div class="coupons">${list.map(couponCard).join("")}</div>` : "");
+  const content =
+    forMe.length || fromMe.length
+      ? group("Untukmu", forMe) + group(`Darimu untuk ${esc(partnerName())}`, fromMe)
+      : `<div class="empty"><p>Belum ada kupon aktif. Buat kupon untuk ${esc(partnerName())}, misalnya “1x dipijat”.</p>
+         <button type="button" class="add-btn" data-action="new-coupon">${icon("plus")}Buat kupon</button></div>`;
+  return `<section class="section">${head(add)}${content}
+    ${used.length ? `<details class="past"><summary>Sudah ditukar (${used.length})</summary><div class="coupons">${used.map(couponCard).join("")}</div></details>` : ""}
+  </section>`;
+}
+
+function openCouponSheet() {
+  openSheet(
+    `Kupon untuk ${esc(partnerName())}`,
+    `<form data-form="coupon">
+      ${field("c-title", "Isi kupon", '<input id="c-title" name="title" maxlength="80" required placeholder="1x dipijat 15 menit">')}
+      <div class="quick-dates">${COUPON_IDEAS.map((t) => `<button type="button" class="tag-btn" data-action="coupon-idea" data-title="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+      ${field("c-note", "Catatan (opsional)", '<textarea id="c-note" name="note" maxlength="500" placeholder="Berlaku sampai kamu bosan ♡"></textarea>')}
+      <p class="help">${esc(partnerName())} bisa menukarnya kapan saja. Setelah dibuat, isinya tidak bisa diubah.</p>
+      <div class="sheet__actions"><button type="submit" class="btn">Beri kupon 🎟️</button></div>
+    </form>`,
+  );
+}
+
+async function saveCoupon(form) {
+  if (!form.reportValidity()) return;
+  await api("/rest/v1/love_coupons", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ couple_id: state.couple.id, from_name: myName(), title: formValue(form, "title"), note: formValue(form, "note") }),
+  });
+  closeSheet();
+  await loadCoupons();
+  render();
+  toast(`Kupon terkirim untuk ${partnerName()} 🎟️`);
+}
+
+async function redeemCoupon(id) {
+  const c = state.coupons.find((x) => x.id === id);
+  if (!c) return;
+  if (!confirm(`Tukar kupon “${c.title}” sekarang?`)) return;
+  await api(`/rest/v1/love_coupons?id=${eq(id)}`, { method: "PATCH", body: JSON.stringify({ redeemed_at: new Date().toISOString() }) });
+  await loadCoupons();
+  render();
+  toast(`Kupon ditukar! Tagih ke ${c.from_name} ya 😄`);
+}
+
+async function deleteCoupon(id) {
+  if (!confirm("Hapus kupon ini?")) return;
+  await api(`/rest/v1/love_coupons?id=${eq(id)}`, { method: "DELETE" });
+  await loadCoupons();
+  render();
+  toast("Kupon dihapus.");
+}
+
 function giftsView() {
   const rows = entriesOf("gift").map((x) => entryRow(x, { lead: markIcon("gift") })).join("");
-  return `${pageHead("Hadiah", "Catat ide hadiah sebelum lupa")}
+  return `${pageHead("Hadiah", "Kupon cinta dan ide hadiah untuk satu sama lain")}
+    ${couponsSection()}
     <section class="section">
-      <div class="section-head"><h2>Daftar ide</h2>${addButton("gift")}</div>
+      <div class="section-head"><h2>Ide hadiah</h2>${addButton("gift")}</div>
       ${rows ? `<div class="list">${rows}</div>` : emptyState("Dengar dia menyebut barang yang diinginkan? Catat di sini.", "gift", "Tambah ide hadiah")}
     </section>`;
 }
@@ -865,13 +1176,14 @@ function buildRecap(year) {
   const wishes = entriesOf("wishlist").filter((x) => inYear(x.done_at));
   const stories = entriesOf("memory").filter((x) => inYear(x.event_date));
   const letters = state.letters.filter((l) => inYear(l.created_at?.slice(0, 10)));
+  const answerDays = new Set(state.answers.filter((a) => inYear(a.day)).map((a) => a.day)).size;
 
   const counts = Array(12).fill(0);
   [...dates.map((x) => x.event_date), ...photos.map(photoDate), ...wishes.map((x) => x.done_at), ...stories.map((x) => x.event_date)].forEach(
     (iso) => counts[Number(iso.slice(5, 7)) - 1]++,
   );
   const busiestCount = Math.max(...counts);
-  return { year, dates, places, photos, wishes, stories, letters, busiest: busiestCount > 0 ? counts.indexOf(busiestCount) : -1, busiestCount };
+  return { year, dates, places, photos, wishes, stories, letters, answerDays, busiest: busiestCount > 0 ? counts.indexOf(busiestCount) : -1, busiestCount };
 }
 
 function recapSlides(r) {
@@ -909,6 +1221,12 @@ function recapSlides(r) {
     slides.push({
       theme: "aiya",
       html: `<small>Bulan paling seru</small><p class="recap__big">${MONTHS_LONG[r.busiest]}</p><p>${r.busiestCount} momen tercatat dalam sebulan</p>`,
+    });
+  }
+  if (r.answerDays) {
+    slides.push({
+      theme: "butter",
+      html: `<small>Ngobrol lewat pertanyaan harian</small><p class="recap__num">${r.answerDays}</p><h2>hari saling bertanya</h2><p>Satu pertanyaan kecil setiap hari.</p>`,
     });
   }
   if (r.stories.length + r.letters.length) {
@@ -1428,6 +1746,18 @@ async function uploadMemoryPhotos(form) {
   };
 
   const total = state.pendingPhotos.length;
+  const albumId = total > 1 ? crypto.randomUUID() : null;
+  const insertRow = async (row) => {
+    const send = (body) => api("/rest/v1/memory_photos", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(body) });
+    if (!albumId || !state.albumsSupported) return send(row);
+    try {
+      await send({ ...row, album_id: albumId });
+    } catch (err) {
+      if (!/album_id/i.test(err.message)) throw err;
+      state.albumsSupported = false; // SQL 08 belum dijalankan: simpan sebagai foto terpisah
+      await send(row);
+    }
+  };
   let saved = 0;
   try {
     while (state.pendingPhotos.length) {
@@ -1435,11 +1765,7 @@ async function uploadMemoryPhotos(form) {
       const path = `${state.couple.id}/${crypto.randomUUID()}.${IMAGE_EXT[file.type]}`;
       await storage.upload("kenangan", path, file);
       try {
-        await api("/rest/v1/memory_photos", {
-          method: "POST",
-          headers: { Prefer: "return=minimal" },
-          body: JSON.stringify({ couple_id: state.couple.id, storage_path: path, ...meta }),
-        });
+        await insertRow({ couple_id: state.couple.id, storage_path: path, ...meta });
       } catch (err) {
         await storage.remove("kenangan", path).catch(() => {});
         throw err;
@@ -1462,7 +1788,7 @@ async function uploadMemoryPhotos(form) {
 async function deletePhoto(id) {
   const photo = state.photos.find((p) => p.id === id);
   if (!photo || !canManagePhoto(photo)) return;
-  if (!confirm("Hapus foto kenangan ini secara permanen?")) return;
+  if (!confirm("Hapus foto ini secara permanen?")) return;
   // Hapus baris database dulu agar galeri tidak pernah menampilkan foto rusak.
   await api(`/rest/v1/memory_photos?id=${eq(id)}`, { method: "DELETE" });
   await storage.remove("kenangan", photo.storage_path).catch(() => {});
@@ -1475,25 +1801,55 @@ async function deletePhoto(id) {
 let viewerEl = null;
 let viewerOpener = null;
 function openViewer(id) {
-  const photo = state.photos.find((p) => p.id === id);
-  if (!photo) return;
+  const album = albumOfPhoto(id);
+  if (!album) return;
+  const photos = album.photos;
+  const first = photos[0];
+  const many = photos.length > 1;
+  const manage = canManagePhoto(first);
   viewerOpener = document.activeElement;
   viewerEl = document.createElement("div");
   viewerEl.className = "viewer";
   viewerEl.dataset.viewer = "";
   viewerEl.setAttribute("role", "dialog");
   viewerEl.setAttribute("aria-modal", "true");
-  viewerEl.setAttribute("aria-label", photo.title);
+  viewerEl.setAttribute("aria-label", first.title);
   viewerEl.innerHTML = `<button type="button" class="icon-btn viewer__close" data-action="close-viewer" aria-label="Tutup">×</button>
-    <img src="${esc(storage.publicUrl("kenangan", photo.storage_path))}" alt="${esc(photo.title)}">
-    <div class="viewer__text"><h2>${esc(photo.title)}</h2>
-      ${photo.taken_on ? `<small>${esc(formatDate(photo.taken_on))}</small>` : ""}
-      ${photo.caption ? `<p>${esc(photo.caption)}</p>` : ""}
+    <div class="viewer__stage">
+      <div class="viewer__track" tabindex="0" aria-label="${many ? `${photos.length} foto, geser untuk melihat` : "Foto"}">
+        ${photos.map((p, i) => `<figure class="viewer__slide"><img src="${esc(storage.publicUrl("kenangan", p.storage_path))}" alt="${esc(first.title)}${many ? `, foto ${i + 1}` : ""}"></figure>`).join("")}
+      </div>
+      ${many ? `<button type="button" class="icon-btn viewer__arrow viewer__arrow--prev" data-action="viewer-step" data-step="-1" aria-label="Foto sebelumnya">${icon("left")}</button>
+               <button type="button" class="icon-btn viewer__arrow viewer__arrow--next" data-action="viewer-step" data-step="1" aria-label="Foto berikutnya">${icon("right")}</button>` : ""}
     </div>
-    ${canManagePhoto(photo) ? `<button type="button" class="btn btn--sm btn--danger" data-action="delete-photo" data-id="${esc(photo.id)}">Hapus foto</button>` : ""}`;
+    ${many ? `<div class="viewer__dots" aria-hidden="true">${photos.map((_, i) => `<span class="${i === 0 ? "is-on" : ""}"></span>`).join("")}</div>` : ""}
+    <div class="viewer__text"><h2>${esc(first.title)}</h2>
+      ${first.taken_on ? `<small>${esc(formatDate(first.taken_on))}</small>` : ""}
+      ${first.caption ? `<p>${esc(first.caption)}</p>` : ""}
+    </div>
+    ${manage ? `<button type="button" class="btn btn--sm btn--danger" data-action="delete-photo" data-id="${esc(first.id)}">${many ? "Hapus foto ini" : "Hapus foto"}</button>` : ""}`;
   document.body.append(viewerEl);
   document.body.classList.add("no-scroll");
+
+  const track = $(".viewer__track", viewerEl);
+  const update = () => {
+    const index = Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
+    viewerEl.querySelectorAll(".viewer__dots span").forEach((d, i) => d.classList.toggle("is-on", i === index));
+    const del = $('[data-action="delete-photo"]', viewerEl);
+    if (del && photos[index]) del.dataset.id = photos[index].id;
+    const prev = $(".viewer__arrow--prev", viewerEl);
+    const next = $(".viewer__arrow--next", viewerEl);
+    if (prev) prev.disabled = index === 0;
+    if (next) next.disabled = index === photos.length - 1;
+  };
+  track.addEventListener("scroll", () => requestAnimationFrame(update), { passive: true });
+  update();
   $(".viewer__close", viewerEl).focus();
+}
+
+function viewerStep(step) {
+  const track = viewerEl && $(".viewer__track", viewerEl);
+  if (track) track.scrollBy({ left: step * track.clientWidth, behavior: prefersReducedMotion() ? "auto" : "smooth" });
 }
 
 function closeViewer() {
@@ -1847,6 +2203,32 @@ document.addEventListener("click", async (e) => {
       case "open-recap":
         openRecap(Number(el.dataset.year));
         break;
+      case "answer-daily":
+        openAnswerSheet();
+        break;
+      case "answers-archive":
+        openAnswersArchive();
+        break;
+      case "new-coupon":
+        openCouponSheet();
+        break;
+      case "coupon-idea": {
+        const input = $("#c-title");
+        if (input) {
+          input.value = el.dataset.title;
+          input.focus();
+        }
+        break;
+      }
+      case "redeem-coupon":
+        await withBusy(el, "…", () => redeemCoupon(el.dataset.id));
+        break;
+      case "delete-coupon":
+        await deleteCoupon(el.dataset.id);
+        break;
+      case "viewer-step":
+        viewerStep(Number(el.dataset.step));
+        break;
     }
   } catch (err) {
     toast(err.message, true);
@@ -1866,6 +2248,8 @@ document.addEventListener("submit", async (e) => {
     hobbies: () => withBusy(button, "Menyimpan…", () => saveHobbies(form)),
     photos: () => withBusy(button, "Mengunggah…", () => uploadMemoryPhotos(form)),
     letter: () => withBusy(button, "Menyegel…", () => saveLetter(form)),
+    answer: () => withBusy(button, "Mengirim…", () => saveAnswer(form)),
+    coupon: () => withBusy(button, "Mengirim…", () => saveCoupon(form)),
   };
   try {
     await handlers[kind]?.();
@@ -1884,6 +2268,10 @@ document.addEventListener("change", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (viewerEl && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    return viewerStep(e.key === "ArrowLeft" ? -1 : 1);
+  }
   if (e.key !== "Escape") return;
   if (viewerEl) closeViewer();
   else if (sheetEl) closeSheet();
