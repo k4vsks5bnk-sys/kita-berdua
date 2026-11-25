@@ -8,6 +8,17 @@ Source frontend aplikasi Kita Berdua untuk dipindahkan dari ChatGPT Sites ke Git
 - `manifest.webmanifest`: konfigurasi pemasangan ke Home Screen.
 - `icon.svg`: ikon aplikasi.
 - `sw.js`: service worker PWA.
+- `supabase-memory-setup.sql`: tabel galeri dan aturan akses Supabase.
+
+## Mengaktifkan Galeri Kenangan
+
+1. Di proyek Supabase yang **sudah digunakan website**, buka **SQL Editor**.
+2. Tinjau dan jalankan `supabase-memory-setup.sql` satu kali. Skrip membuat tabel `memory_photos`, bucket publik `kenangan`, dan aturan RLS untuk anggota pasangan.
+3. Pastikan hanya dua akun Aiya dan Denan yang terdaftar di `couple_members` untuk pasangan ini. Akun tambahan yang diberi keanggotaan juga mendapat izin upload/hapus.
+4. Deploy `index.html` baru ke hosting aktif. Jangan mengganti URL/key Supabase.
+5. Uji pengunjung tanpa login (hanya bisa melihat foto), lalu login masing-masing akun dan coba upload/hapus foto percobaan.
+
+Foto **bersifat publik**: siapa pun yang memiliki URL foto dapat melihatnya. Data di tab Jadwal, Wishlist, Hadiah, dan cerita lama di `entries` tetap mengikuti kebijakan privat yang sudah ada. Jangan jalankan SQL ini jika foto semestinya hanya dapat dilihat pasangan.
 
 ## Cara memasang di Vercel
 
@@ -25,7 +36,7 @@ Source frontend aplikasi Kita Berdua untuk dipindahkan dari ChatGPT Sites ke Git
 - Pengalihan website **tidak** mengalihkan owner Supabase. Undang Gmail baru ke organisasi Supabase secara terpisah dan pastikan aksesnya diuji sebelum mencabut akun lama.
 - Kepemilikan domain tetap di akun Rumahweb. Atur akses/pemilik akun domain secara terpisah, tanpa membagikan password.
 - Jangan menghapus Site lama, database, record DNS, atau akun login sebelum deployment dan login di domain baru terbukti normal.
-- Aplikasi saat ini belum mencakup upload foto privat ke Supabase Storage. Fitur itu memerlukan pengembangan lanjutan.
+- Galeri foto publik memakai Supabase Storage dengan unggahan khusus akun anggota pasangan. Keamanan write bergantung pada policy Supabase, bukan pada tombol di frontend.
 
 ## Sumber
 
