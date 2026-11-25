@@ -413,7 +413,7 @@ async function loadImage(file) {
   }
 }
 
-async function compressImage(file, maxPx, quality = 0.85) {
+async function compressImage(file, maxPx, quality = 0.85, { mirror = false } = {}) {
   const img = await loadImage(file).catch(() => {
     throw new Error("Foto tidak bisa dibaca. Coba foto lain.");
   });
@@ -421,7 +421,13 @@ async function compressImage(file, maxPx, quality = 0.85) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(img.width * scale);
   canvas.height = Math.round(img.height * scale);
-  canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+  const ctx = canvas.getContext("2d");
+  if (mirror) {
+    // Balik horizontal (seperti cermin), biasanya untuk selfie kamera depan
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   img.close?.();
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Gagal memproses foto."))), "image/jpeg", quality),
@@ -821,9 +827,10 @@ snapPicker?.addEventListener("change", async () => {
   const file = snapPicker.files[0];
   if (!file) return;
   try {
-    const blob = await compressImage(file, SNAP_OUTPUT_PX, 0.82);
+    const mirror = true; // PAP default di-mirror
+    const blob = await compressImage(file, SNAP_OUTPUT_PX, 0.82, { mirror });
     if (state.pendingSnap) URL.revokeObjectURL(state.pendingSnap.url);
-    state.pendingSnap = { blob, url: URL.createObjectURL(blob) };
+    state.pendingSnap = { file, mirror, blob, url: URL.createObjectURL(blob) };
     openSheet(
       "Kirim PAP",
       `<form data-form="snap">
@@ -832,6 +839,7 @@ snapPicker?.addEventListener("change", async () => {
         <p class="help">${esc(partnerName())} baru bisa melihatnya setelah ikut kirim PAP hari ini. Besok PAP ini hilang.</p>
         <div class="sheet__actions">
           <button type="button" class="btn btn--ghost" data-action="take-snap">Foto ulang</button>
+          <button type="button" class="btn btn--ghost" data-action="flip-snap">Balik</button>
           <button type="submit" class="btn">Kirim</button>
         </div>
       </form>`,
@@ -840,6 +848,18 @@ snapPicker?.addEventListener("change", async () => {
     toast(err.message, true);
   }
 });
+
+// Ganti mirror/tidak tanpa menutup sheet (caption yang sudah diketik tetap aman)
+async function flipSnap() {
+  const p = state.pendingSnap;
+  if (!p?.file) return;
+  const mirror = !p.mirror;
+  const blob = await compressImage(p.file, SNAP_OUTPUT_PX, 0.82, { mirror });
+  URL.revokeObjectURL(p.url);
+  state.pendingSnap = { ...p, mirror, blob, url: URL.createObjectURL(blob) };
+  const img = document.querySelector(".snap-preview");
+  if (img) img.src = state.pendingSnap.url;
+}
 
 async function sendSnap(form) {
   if (!state.pendingSnap) throw new Error("Ambil foto dulu.");
@@ -2446,6 +2466,9 @@ document.addEventListener("click", async (e) => {
         break;
       case "take-snap":
         takeSnap();
+        break;
+      case "flip-snap":
+        await flipSnap();
         break;
       case "view-snap":
         viewSnap(el.dataset.id);
